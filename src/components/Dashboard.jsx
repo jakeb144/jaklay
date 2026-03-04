@@ -193,12 +193,53 @@ function WaterfallReport({ rows, stepOutputCol }) {
   );
 }
 
+// ─── Column type detection and auto-mapping ──────────────────────────────────
+
+const COLUMN_TYPE_MAP = {
+  first_name: [/^first.?name/i, /^first$/i, /^fname/i, /^given.?name/i],
+  last_name: [/^last.?name/i, /^last$/i, /^lname/i, /^surname/i],
+  full_name: [/^full.?name/i, /^name$/i, /^contact.?name/i],
+  email: [/^e.?mail$/i, /^email.?address/i, /^work.?email/i, /^primary.?email/i],
+  company_name: [/^company$/i, /^company.?name/i, /^organization/i, /^companyname/i],
+  job_title: [/^title$/i, /^job.?title/i, /^position/i, /^headline/i, /^jobtitle/i],
+  phone: [/^phone$/i, /^phone.?number/i, /^mobile/i, /^company.?phone/i],
+  website: [/^website$/i, /^url$/i, /^domain$/i, /^company.?website/i],
+  linkedin: [/^linkedin$/i, /^linkedin.?url/i, /^company.?linkedin/i],
+  city: [/^city$/i, /^company.?city/i],
+  state: [/^state$/i, /^province/i, /^company.?state/i],
+  country: [/^country$/i, /^company.?country/i],
+  industry: [/^industry$/i, /^sector/i],
+  revenue: [/^revenue/i, /^annual.?rev/i, /^company.?annual/i],
+  employee_count: [/^employee/i, /^headcount/i, /^company.?size/i],
+};
+
+function detectColumnType(colName) {
+  for (const [stdName, patterns] of Object.entries(COLUMN_TYPE_MAP)) {
+    if (patterns.some(p => p.test(colName))) return stdName;
+  }
+  return null;
+}
+
+function buildColumnTypeMap(columns) {
+  const map = {};
+  columns.forEach(col => { const type = detectColumnType(col); if (type) map[col] = type; });
+  return map;
+}
+
 const corePatterns = [/^first/i, /^last/i, /name/i, /company/i, /domain/i, /website/i, /email/i, /phone/i, /title/i, /city/i, /state/i, /country/i, /industry/i];
+
 function autoSortColumns(orig, enrich) {
   const core = [], other = [];
   orig.forEach(c => (corePatterns.some(p => p.test(c)) ? core : other).push(c));
-  return [...core, ...other, ...enrich];
+  return [...core, ...enrich, ...other];
 }
+
+const TEMPLATE_PRESETS = [
+  { name: "Lead List (Basic)", cols: ["first_name","last_name","email","company_name","job_title","phone"] },
+  { name: "Lead List (Full)", cols: ["first_name","last_name","email","company_name","job_title","phone","website","linkedin","city","state","country","industry"] },
+  { name: "Company List", cols: ["company_name","website","industry","city","state","country","employee_count","revenue"] },
+  { name: "Email Campaign", cols: ["first_name","last_name","email","company_name","job_title","campaign_name"] },
+];
 
 function ContextMenu({ x, y, onSelect, onClose }) {
   useEffect(() => { const h = () => onClose(); window.addEventListener('click', h); return () => window.removeEventListener('click', h); }, [onClose]);
@@ -325,13 +366,14 @@ function WaterfallBuilder({ sources, onUpdate, keys }) {
   );
 }
 
-function StepConfig({ step, columns, keys, onUpdate, onDelete, onDuplicate, rows }) {
+function StepConfig({ step, columns, keys, onUpdate, onDelete, onDuplicate, rows, colTypeMap }) {
   const u = (f,v) => onUpdate({...step,[f]:v});
   const aiProviders = Object.entries(INTEG_SETUP).filter(([,v]) => v.type === "ai");
   const emailFinders = Object.entries(INTEG_SETUP).filter(([,v]) => v.type === "email_finder");
   const verifiers = Object.entries(INTEG_SETUP).filter(([,v]) => v.type === "verification");
   const models = INTEGRATIONS[step.provider]?.models || [];
   const stepType = STEP_TYPES.find(t => t.id === step.type);
+  const [rowRange, setRowRange] = useState(step.rowRange || ''); // e.g. "1-50" or "5,10,15"
 
   return (
     <div className="p-4 space-y-3">
@@ -377,7 +419,7 @@ function StepConfig({ step, columns, keys, onUpdate, onDelete, onDuplicate, rows
         </div>
         <div>
           <label className="text-[10px] font-bold text-gray-400 uppercase">Quick Load Prompt</label>
-          <select onChange={e => { const p = PROMPT_LIBRARY.find(x => x.id === e.target.value); if(p) { u("prompt",p.prompt); u("provider",p.provider); u("model",p.model); }}}
+          <select onChange={e => { const p = PROMPT_LIBRARY.find(x => x.id === e.target.value); if(p) onUpdate({...step, prompt: p.prompt, provider: p.provider, model: p.model}); }}
             className="w-full mt-1 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700 font-medium cursor-pointer hover:bg-indigo-100 transition" defaultValue="">
             <option value="">📚 Select a template to load into editor...</option>
             {PROMPT_LIBRARY.map(p => <option key={p.id} value={p.id}>{p.cat}: {p.name} → {p.model}</option>)}
@@ -387,11 +429,27 @@ function StepConfig({ step, columns, keys, onUpdate, onDelete, onDuplicate, rows
           <label className="text-[10px] font-bold text-gray-400 uppercase">Prompt</label>
           <textarea value={step.prompt||""} onChange={e => u("prompt",e.target.value)} rows={8} placeholder="Write your prompt here. Use {column_name} to reference row data..."
             className="w-full mt-1 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-indigo-200 leading-relaxed" />
-          <div className="flex flex-wrap gap-1 mt-1.5">
-            {columns.filter(c => !c.startsWith('__')).slice(0,20).map(c => (
-              <button key={c} onClick={() => u("prompt",(step.prompt||"")+"{"+c+"}")}
-                className="px-2 py-0.5 bg-indigo-50 border border-indigo-100 rounded text-[10px] text-indigo-600 font-mono hover:bg-indigo-100 transition">{"{"+c+"}"}</button>
-            ))}
+          {/* Variable insertion: dropdown + chips */}
+          <div className="mt-1.5 space-y-1.5">
+            <select onChange={e => { if(e.target.value) { u("prompt",(step.prompt||"")+"{"+e.target.value+"}"); e.target.value=""; }}}
+              className="w-full text-xs border border-indigo-200 rounded-lg px-2.5 py-1.5 bg-indigo-50/50 text-indigo-700" defaultValue="">
+              <option value="">📎 Insert column variable...</option>
+              {columns.filter(c => !c.startsWith('__')).map(c => {
+                const stdType = colTypeMap?.[c];
+                return <option key={c} value={c}>{"{"+c+"}"}{stdType ? " → " + stdType : ""}</option>;
+              })}
+            </select>
+            <div className="flex flex-wrap gap-1">
+              {columns.filter(c => !c.startsWith('__')).slice(0,15).map(c => {
+                const stdType = colTypeMap?.[c];
+                return (
+                  <button key={c} onClick={() => u("prompt",(step.prompt||"")+"{"+c+"}")}
+                    className="px-2 py-0.5 bg-indigo-50 border border-indigo-100 rounded text-[10px] text-indigo-600 font-mono hover:bg-indigo-100 transition" title={stdType ? "Detected: "+stdType : c}>
+                    {stdType ? "📌" : ""}{"{"+c+"}"}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </>}
@@ -494,6 +552,27 @@ function StepConfig({ step, columns, keys, onUpdate, onDelete, onDuplicate, rows
           </select>
         </div>
       </>}
+
+      {/* Row Range Selector — applies to all step types */}
+      <details className="group mt-2 pt-2 border-t border-gray-100">
+        <summary className="cursor-pointer text-[11px] font-semibold text-gray-400 uppercase tracking-wide flex items-center gap-1">
+          <span className="group-open:rotate-90 transition-transform text-[10px]">▶</span>
+          Run Specific Rows {rowRange && <span className="text-indigo-500 normal-case">· {rowRange}</span>}
+        </summary>
+        <div className="mt-2 space-y-2">
+          <input value={rowRange} onChange={e => { setRowRange(e.target.value); u("rowRange", e.target.value); }}
+            placeholder="e.g. 1-50 or 5,10,15,20 or leave blank for all"
+            className="w-full text-xs border border-gray-200 rounded-md px-2.5 py-1.5 bg-white font-mono" />
+          <div className="flex flex-wrap gap-1">
+            {[{l:"First 10",v:"1-10"},{l:"First 50",v:"1-50"},{l:"First 100",v:"1-100"},{l:"All",v:""}].map(({l,v}) => (
+              <button key={l} onClick={() => { setRowRange(v); u("rowRange",v); }}
+                className={["px-2 py-0.5 rounded text-[10px] border transition",
+                  rowRange===v ? "bg-indigo-500 text-white border-indigo-500" : "bg-white border-gray-200 text-gray-500 hover:border-indigo-300"].join(" ")}>{l}</button>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-400">Use ranges (1-50) or specific rows (5,10,15). Blank = all rows.</p>
+        </div>
+      </details>
     </div>
   );
 }
@@ -521,6 +600,7 @@ export default function Dashboard() {
   const [dragCol, setDragCol] = useState(null);
   const [dragOverCol, setDragOverCol] = useState(null);
   const [templateColumns, setTemplateColumns] = useState([]);
+  const [colTypeMap, setColTypeMap] = useState({}); // original col name → detected standard type
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState('asc');
   const [filters, setFilters] = useState([]); // [{ column, operator, value }]
@@ -664,19 +744,15 @@ export default function Dashboard() {
     return () => { supabase.removeChannel(channel); };
   }, [supabase, currentListId]);
 
+  // Close cell menu on click
   useEffect(() => {
-    if (!activeJob) { if (pollRef.current) clearInterval(pollRef.current); return; }
-    pollRef.current = setInterval(async () => {
-      const res = await fetch('/api/workflow/status?job_id='+activeJob);
-      const data = await res.json();
-      setJobProgress(data);
-      if (['completed','stopped','failed'].includes(data.status)) {
-        clearInterval(pollRef.current);
-        if (currentListId) loadListRows(currentListId);
-      }
-    }, 2000);
-    return () => clearInterval(pollRef.current);
-  }, [activeJob, currentListId]);
+    if (!cellMenu) return;
+    const h = () => setCellMenu(null);
+    window.addEventListener('click', h);
+    return () => window.removeEventListener('click', h);
+  }, [cellMenu]);
+
+  const activeJob = runningStep; // alias for compatibility
 
   useEffect(() => { setColumnOrder(null); }, [steps.length, origColumns.length, templateColumns.length]);
 
@@ -715,6 +791,11 @@ export default function Dashboard() {
       complete: async (results) => {
         const cols = results.meta.fields || [];
         const csvRows = results.data;
+
+        // Auto-detect column types
+        const typeMap = buildColumnTypeMap(cols);
+        setColTypeMap(typeMap);
+
         const { data: newList } = await supabase.from('lists').insert({
           user_id: 'default', name: file.name.replace(/\.csv$/i, ''), row_count: csvRows.length, original_columns: cols,
         }).select().single();
@@ -725,9 +806,43 @@ export default function Dashboard() {
         setLists(prev => [newList, ...prev]);
         await loadListRows(newList.id);
         setColumnOrder(null);
+
+        // Auto-map step column references if loading onto a template
+        if (steps.length > 0) {
+          // Build reverse map: standard type → actual column name
+          const reverseMap = {};
+          Object.entries(typeMap).forEach(([orig, std]) => { reverseMap[std] = orig; });
+          // Update step prompts: replace {standard_name} with {actual_column_name}
+          setSteps(prev => prev.map(step => {
+            let updated = { ...step };
+            if (updated.prompt) {
+              Object.entries(reverseMap).forEach(([std, actual]) => {
+                updated.prompt = updated.prompt.replace(new RegExp('\\{' + std + '\\}', 'gi'), '{' + actual + '}');
+              });
+            }
+            // Auto-map column selectors
+            if (!updated.emailColumn) {
+              const emailCol = Object.entries(typeMap).find(([,t]) => t === 'email');
+              if (emailCol) updated.emailColumn = emailCol[0];
+            }
+            if (!updated.fnCol) {
+              const fn = Object.entries(typeMap).find(([,t]) => t === 'first_name');
+              if (fn) updated.fnCol = fn[0];
+            }
+            if (!updated.lnCol) {
+              const ln = Object.entries(typeMap).find(([,t]) => t === 'last_name');
+              if (ln) updated.lnCol = ln[0];
+            }
+            if (!updated.domainCol) {
+              const dom = Object.entries(typeMap).find(([,t]) => t === 'website');
+              if (dom) updated.domainCol = dom[0];
+            }
+            return updated;
+          }));
+        }
       },
     });
-  }, [supabase]);
+  }, [supabase, steps]);
 
   const handleDrop = useCallback((e) => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f?.name.endsWith('.csv')) handleFile(f); }, [handleFile]);
 
@@ -789,21 +904,202 @@ export default function Dashboard() {
     try { const d = JSON.parse(wf.description || '{}'); if (d.templateColumns) setTemplateColumns(d.templateColumns); } catch {}
   };
 
-  const runAll = async () => {
-    if (!currentListId || steps.length === 0) return;
-    const res = await fetch('/api/workflow/run', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ list_id: currentListId, steps, test_limit: testMode }),
-    });
-    const data = await res.json();
-    if (data.job_id) { setActiveJob(data.job_id); setJobProgress({ status: 'running', progress_pct: 0 }); }
+  // ─── CLIENT-SIDE ENRICHMENT ENGINE ──────────────────────────
+  // Runs directly in the browser — no server dependency, no timeout issues
+  const [runningStep, setRunningStep] = useState(null); // stepId
+  const [runProgress, setRunProgress] = useState(null); // { current, total, errors, stepIdx, totalSteps }
+  const abortRef = useRef(false);
+
+  const callAIDirect = async (provider, model, prompt) => {
+    const key = keys[provider];
+    if (!key) throw new Error('No ' + provider + ' key — add it in Keys panel');
+    if (provider === 'anthropic') {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model, max_tokens: 1024, messages: [{ role: 'user', content: prompt }] }),
+      });
+      const d = await r.json(); if (d.error) throw new Error(d.error.message); return d.content?.[0]?.text || '';
+    }
+    if (provider === 'openai') {
+      const r = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+        body: JSON.stringify({ model, max_tokens: 1024, messages: [{ role: 'user', content: prompt }] }),
+      });
+      const d = await r.json(); if (d.error) throw new Error(d.error.message); return d.choices?.[0]?.message?.content || '';
+    }
+    if (provider === 'perplexity') {
+      const r = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+        body: JSON.stringify({ model, max_tokens: 1024, messages: [{ role: 'user', content: prompt }] }),
+      });
+      const d = await r.json(); if (d.error) throw new Error(d.error?.message || JSON.stringify(d.error)); return d.choices?.[0]?.message?.content || '';
+    }
+    throw new Error('Unknown provider: ' + provider);
   };
 
-  const stopJob = async () => {
-    if (!activeJob) return;
-    await fetch('/api/workflow/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: activeJob, action: 'stop' }) });
-    setActiveJob(null);
+  const interpolatePrompt = (template, row) => {
+    return template.replace(/\{(\w[\w\s]*)\}/g, (_, key) => {
+      const k = key.trim();
+      const match = Object.keys(row).find(c => c.toLowerCase().replace(/\s+/g,'_') === k.toLowerCase().replace(/\s+/g,'_') || c.toLowerCase() === k.toLowerCase());
+      return match ? (row[match] || '') : '{' + k + '}';
+    });
   };
+
+  const checkCondition = (row, cond) => {
+    if (!cond || !cond.column) return true;
+    const val = (row[cond.column] || '').toString().toLowerCase().trim();
+    const target = (cond.value || '').toLowerCase().trim();
+    switch (cond.operator) {
+      case 'equals': return val === target;
+      case 'not_equals': return val !== target;
+      case 'contains': return val.includes(target);
+      case 'not_contains': return !val.includes(target);
+      case 'is_empty': return val === '';
+      case 'is_not_empty': return val !== '';
+      case 'greater_than': return parseFloat(val) > parseFloat(target);
+      case 'less_than': return parseFloat(val) < parseFloat(target);
+      case 'starts_with': return val.startsWith(target);
+      default: return true;
+    }
+  };
+
+  const runStepForRow = async (step, rowData) => {
+    if (step.condition?.column && !checkCondition(rowData, step.condition)) return '⏭ Skipped';
+    const existing = rowData[step.outputColumn];
+    if (existing && !existing.startsWith('⚠') && !existing.startsWith('⏭')) return existing; // already filled
+
+    if (step.type === 'ai_enrich' || step.type === 'web_research') {
+      const filled = interpolatePrompt(step.prompt || '', rowData);
+      if (!filled.trim()) return '⚠ Empty prompt';
+      return await callAIDirect(step.provider, step.model, filled);
+    }
+    if (step.type === 'api_verify') {
+      const email = rowData[step.emailColumn];
+      if (!email) return '⏭ No email';
+      const key = keys[step.verifyProvider || 'millionverifier'];
+      if (!key) return '⚠ No ' + (step.verifyProvider || 'millionverifier') + ' key';
+      if ((step.verifyProvider || 'millionverifier') === 'millionverifier') {
+        const r = await fetch('https://api.millionverifier.com/api/v3/?api=' + key + '&email=' + encodeURIComponent(email));
+        const d = await r.json(); return d.result || d.quality || JSON.stringify(d);
+      }
+      if (step.verifyProvider === 'emaillable') {
+        const r = await fetch('https://api.emaillable.com/v1/verify?email=' + encodeURIComponent(email) + '&api_key=' + key);
+        const d = await r.json(); return d.state || d.reason || JSON.stringify(d);
+      }
+      if (step.verifyProvider === 'bounceban') {
+        const r = await fetch('https://api.bounceban.com/v1/verify/single?email=' + encodeURIComponent(email), { headers: { 'x-api-key': key } });
+        const d = await r.json(); return d.status || d.result || JSON.stringify(d);
+      }
+      return '⚠ Unknown verifier';
+    }
+    if (step.type === 'formula') {
+      const f = step.formula || '';
+      const ifMatch = f.match(/IF\s+\{(.+?)\}\s+is\s+"(.+?)"\s+THEN\s+\{(.+?)\}\s*(?:ELSE\s+\{(.+?)\})?/i);
+      if (ifMatch) {
+        const [, col, val, thenCol, elseCol] = ifMatch;
+        return (rowData[col]||'').toLowerCase().trim() === val.toLowerCase().trim() ? (rowData[thenCol]||'') : (elseCol ? rowData[elseCol]||'' : '');
+      }
+      return interpolatePrompt(f, rowData);
+    }
+    if (step.type === 'condition_gate') {
+      return checkCondition(rowData, step.condition) ? '✅ Pass' : '❌ Fail';
+    }
+    return '⚠ Step type not yet implemented client-side';
+  };
+
+  // Parse row range like "1-50" or "5,10,15" into indices
+  const parseRowRange = (range, totalRows) => {
+    if (!range || !range.trim()) return null;
+    const indices = new Set();
+    range.split(',').forEach(part => {
+      part = part.trim();
+      if (part.includes('-')) {
+        const [a, b] = part.split('-').map(Number);
+        for (let i = Math.max(1, a); i <= Math.min(b, totalRows); i++) indices.add(i - 1);
+      } else {
+        const n = parseInt(part);
+        if (n >= 1 && n <= totalRows) indices.add(n - 1);
+      }
+    });
+    return [...indices].sort((a, b) => a - b);
+  };
+
+  const runSingleStep = async (step, specificRows) => {
+    let targetRows;
+    if (specificRows) {
+      targetRows = specificRows;
+    } else if (step.rowRange) {
+      const indices = parseRowRange(step.rowRange, rows.length);
+      targetRows = indices ? indices.map(i => rows[i]).filter(Boolean) : rows;
+    } else if (testMode > 0) {
+      targetRows = rows.slice(0, testMode);
+    } else {
+      targetRows = rows;
+    }
+    const total = targetRows.length;
+    abortRef.current = false;
+    setRunningStep(step.id);
+    setRunProgress({ current: 0, total, errors: 0, stepName: step.outputColumn });
+
+    let errors = 0;
+    for (let i = 0; i < total; i++) {
+      if (abortRef.current) break;
+      const row = targetRows[i];
+      const ri = rows.findIndex(r => r.id === row.id);
+      try {
+        const result = await runStepForRow(step, row.data || {});
+        const trimmed = (result || '').toString().trim();
+        const newData = { ...row.data, [step.outputColumn]: trimmed };
+        setRows(prev => { const c=[...prev]; c[ri]={...c[ri], data: newData}; return c; });
+        await supabase.from('list_rows').update({ data: newData }).eq('id', row.id);
+      } catch (err) {
+        errors++;
+        const newData = { ...row.data, [step.outputColumn]: '⚠ ' + err.message };
+        setRows(prev => { const c=[...prev]; c[ri]={...c[ri], data: newData}; return c; });
+      }
+      setRunProgress({ current: i + 1, total, errors, stepName: step.outputColumn });
+      await new Promise(r => setTimeout(r, 200));
+    }
+    setRunningStep(null);
+    setRunProgress(null);
+  };
+
+  const runAll = async () => {
+    if (steps.length === 0) return;
+    abortRef.current = false;
+    for (let si = 0; si < steps.length; si++) {
+      if (abortRef.current) break;
+      const step = steps[si];
+      if (!step.outputColumn) continue;
+      setRunProgress(prev => ({ ...(prev||{}), stepIdx: si + 1, totalSteps: steps.length }));
+      await runSingleStep(step);
+    }
+  };
+
+  const stopRun = () => { abortRef.current = true; setRunningStep(null); setRunProgress(null); };
+
+  // Run for a single cell
+  const runForCell = async (ri, col) => {
+    const step = steps.find(s => s.outputColumn === col);
+    if (!step) return;
+    const row = rows[ri];
+    setRunningStep(step.id);
+    try {
+      const result = await runStepForRow(step, row.data || {});
+      const newData = { ...row.data, [col]: (result||'').toString().trim() };
+      setRows(prev => { const c=[...prev]; c[ri]={...c[ri], data: newData}; return c; });
+      await supabase.from('list_rows').update({ data: newData }).eq('id', row.id);
+    } catch (err) {
+      const newData = { ...row.data, [col]: '⚠ ' + err.message };
+      setRows(prev => { const c=[...prev]; c[ri]={...c[ri], data: newData}; return c; });
+    }
+    setRunningStep(null);
+  };
+
+  const [cellMenu, setCellMenu] = useState(null); // {x, y, row, col}
 
   const startEdit = (ri, col) => { setEditCell({ row: ri, col }); setEditValue(rows[ri]?.data?.[col] || ''); };
   const commitEdit = async () => {
@@ -884,16 +1180,25 @@ export default function Dashboard() {
           </div>
           {(hasData || hasWorkflow) && <>
             <div className="h-5 w-px bg-gray-200 mx-1" />
-            <div className="flex bg-gray-100 rounded-lg p-0.5">
+            <div className={["flex rounded-lg p-0.5 items-center gap-0.5", testMode > 0 ? "bg-amber-100 ring-1 ring-amber-300" : "bg-gray-100"].join(" ")}>
+              <span className="text-[9px] text-gray-400 px-1.5 font-semibold uppercase">Rows:</span>
               {[0,1,5,10].map(n => (
                 <button key={n} onClick={() => setTestMode(n)}
-                  className={['px-2 py-1 text-[11px] rounded-md transition', testMode===n?'bg-white shadow-sm font-semibold text-indigo-600':'text-gray-400'].join(' ')}>{n||'All'}</button>
+                  className={['px-2.5 py-1 text-[11px] rounded-md transition',
+                    testMode===n ? (n > 0 ? 'bg-amber-500 text-white font-bold shadow-sm' : 'bg-white shadow-sm font-semibold text-indigo-600') : 'text-gray-400 hover:text-gray-600'].join(' ')}>
+                  {n||'All'}
+                </button>
               ))}
             </div>
             {activeJob ? (
-              <button onClick={stopJob} className="px-3 py-1.5 bg-red-50 text-red-500 border border-red-200 rounded-lg text-xs font-semibold">■ Stop {jobProgress ? (jobProgress.progress_pct||0)+'%' : ''}</button>
+              <button onClick={stopRun} className="px-3 py-1.5 bg-red-50 text-red-500 border border-red-200 rounded-lg text-xs font-semibold">■ Stop {runProgress ? Math.round(runProgress.current/runProgress.total*100)+'%' : ''}</button>
             ) : (
-              <button onClick={runAll} disabled={!hasData} className="px-4 py-1.5 bg-indigo-500 text-white rounded-lg text-xs font-semibold hover:bg-indigo-600 disabled:opacity-40 shadow-sm shadow-indigo-200">▶ Run All</button>
+              <button onClick={runAll} disabled={!hasData || steps.length===0}
+                className={["px-4 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition",
+                  testMode > 0 ? "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-200" : "bg-indigo-500 hover:bg-indigo-600 text-white shadow-indigo-200",
+                  (!hasData || steps.length===0) ? "opacity-40" : ""].join(" ")}>
+                ▶ {testMode > 0 ? 'Test '+testMode+' rows' : 'Run All '+rows.length+' rows'}{steps.length > 0 ? ' · '+steps.length+' steps' : ''}
+              </button>
             )}
             {hasData && <button onClick={exportCSV} className="px-3 py-1.5 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-lg text-xs font-semibold">↓ Export</button>}
             {hasData && <button onClick={() => setShowFilterPanel(!showFilterPanel)} className={["px-3 py-1.5 border rounded-lg text-xs font-semibold", filters.length > 0 ? "bg-amber-50 text-amber-600 border-amber-200" : "bg-gray-50 text-gray-500 border-gray-200"].join(" ")}>
@@ -905,8 +1210,16 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {jobProgress && ['running','pending'].includes(jobProgress.status) && (
-        <div className="h-1 bg-gray-100"><div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-700" style={{width:(jobProgress.progress_pct||0)+'%'}} /></div>
+      {runProgress && runningStep && (
+        <div className="h-6 bg-gray-100 flex items-center px-4 gap-3 text-[11px]">
+          <div className="h-1.5 flex-1 bg-gray-200 rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-300" style={{width:Math.round(runProgress.current/runProgress.total*100)+'%'}} />
+          </div>
+          <span className="text-indigo-600 font-semibold font-mono">{runProgress.current}/{runProgress.total}</span>
+          {runProgress.stepIdx && <span className="text-gray-400">step {runProgress.stepIdx}/{runProgress.totalSteps}</span>}
+          {runProgress.errors > 0 && <span className="text-red-500">{runProgress.errors} errors</span>}
+          <span className="text-gray-500 font-medium">{runProgress.stepName}</span>
+        </div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
@@ -933,6 +1246,10 @@ export default function Dashboard() {
                     <span className="text-[10px] text-gray-300 font-mono">{i+1}</span>
                   </div>
                   <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition">
+                    {runningStep === step.id
+                      ? <button onClick={e => {e.stopPropagation(); stopRun();}} className="px-2 py-0.5 bg-red-50 text-red-500 rounded text-[10px] font-semibold">■ Stop</button>
+                      : <button onClick={e => {e.stopPropagation(); runSingleStep(step);}} className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[10px] font-semibold hover:bg-indigo-100">▶ Run</button>
+                    }
                     <button onClick={e => {e.stopPropagation(); moveStep(i,-1);}} className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] text-gray-400 hover:bg-gray-200">↑</button>
                     <button onClick={e => {e.stopPropagation(); moveStep(i,1);}} className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] text-gray-400 hover:bg-gray-200">↓</button>
                     <button onClick={e => {e.stopPropagation(); duplicateStep(step);}} className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] text-gray-400 hover:bg-gray-200">⧉</button>
@@ -944,18 +1261,32 @@ export default function Dashboard() {
           </div>
           <div className="border-t border-gray-100 p-2 max-h-[45vh] overflow-auto">
             {!hasData && (
-              <div className="mb-2">
-                <button onClick={addTemplateColumn} className="flex items-center gap-2 w-full px-2.5 py-2 rounded-lg text-left bg-amber-50 border border-amber-200 hover:bg-amber-100 transition mb-1.5">
-                  <span>📋</span><div><div className="text-xs font-semibold text-amber-700">Add Base Column</div><div className="text-[10px] text-amber-500">Define expected CSV columns</div></div>
+              <div className="mb-3">
+                <div className="text-[10px] font-bold text-amber-600 uppercase tracking-wider px-1 mb-1.5">📋 Template Base Columns</div>
+                {/* Preset buttons */}
+                <div className="flex flex-wrap gap-1 mb-2 px-1">
+                  {TEMPLATE_PRESETS.map(p => (
+                    <button key={p.name} onClick={() => setTemplateColumns(p.cols)}
+                      className="px-2 py-1 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-700 font-medium hover:bg-amber-100 transition">
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => { const name = window.prompt('Column name:'); if(name) setTemplateColumns(prev => [...prev, name]); }}
+                  className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-left bg-amber-50/50 border border-amber-100 hover:bg-amber-50 transition text-[11px] text-amber-600 mb-1.5">
+                  + Add custom column
                 </button>
                 {templateColumns.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mb-2 px-1">
+                  <div className="flex flex-wrap gap-1 px-1">
                     {templateColumns.map(c => (
                       <span key={c} className="px-2 py-0.5 bg-amber-50 border border-amber-200 rounded text-[10px] text-amber-700 font-mono flex items-center gap-1">
                         {c}<button onClick={() => setTemplateColumns(prev => prev.filter(x => x !== c))} className="text-amber-400 hover:text-red-500">×</button>
                       </span>
                     ))}
                   </div>
+                )}
+                {templateColumns.length > 0 && (
+                  <p className="text-[10px] text-amber-500 px-1 mt-1">Add enrichment steps below, save as template, then upload any CSV to run.</p>
                 )}
               </div>
             )}
@@ -1030,16 +1361,18 @@ export default function Dashboard() {
                       const ri = rows.findIndex(r => r.id === row.id);
                       return (
                       <tr key={row.id || di} className={[di%2?'bg-gray-50/30':'bg-white','hover:bg-indigo-50/20 transition'].join(' ')}>
-                        <td className="px-3 py-1.5 text-center text-[10px] text-gray-300 border-b border-gray-50 font-mono">{ri+1}</td>
+                        <td className="px-3 py-2.5 text-center text-[10px] text-gray-300 border-b border-gray-100 font-mono">{ri+1}</td>
                         {allColumns.map(col => {
                           const val = row.data?.[col] || '';
                           const isEditing = editCell?.row === ri && editCell?.col === col;
                           const isErr = val.toString().startsWith('⚠');
                           const isOk = ['✅ Pass','✅ Pushed','ok','YES','deliverable','valid'].includes(val);
                           const isFail = ['❌ Fail','NO','invalid','undeliverable'].includes(val);
+                          const isEnrichCol = enrichCols.includes(col);
                           return (
                             <td key={col} onDoubleClick={() => startEdit(ri,col)} title={val}
-                              className={['px-3 py-1.5 border-b border-gray-50 max-w-[300px] text-xs', isErr?'text-red-500':isOk?'text-emerald-600 font-medium':isFail?'text-red-500 font-medium':''].join(' ')}>
+                              onContextMenu={e => { if(isEnrichCol) { e.preventDefault(); setCellMenu({x:e.clientX,y:e.clientY,row:ri,col}); }}}
+                              className={['px-3 py-2.5 border-b border-gray-100 max-w-[300px] text-xs', isErr?'text-red-500':isOk?'text-emerald-600 font-medium':isFail?'text-red-500 font-medium':''].join(' ')}>
                               {isEditing ? (
                                 <input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)}
                                   onBlur={commitEdit} onKeyDown={e => {if(e.key==='Enter')commitEdit();if(e.key==='Escape')setEditCell(null);}}
@@ -1150,7 +1483,7 @@ export default function Dashboard() {
                 </div>
               )}
               {selStep && !panel && (
-                <StepConfig step={selStep} columns={allColumns} keys={keys} onUpdate={updateStep} onDelete={() => deleteStep(selStep.id)} onDuplicate={() => duplicateStep(selStep)} rows={rows} />
+                <StepConfig step={selStep} columns={allColumns} keys={keys} onUpdate={updateStep} onDelete={() => deleteStep(selStep.id)} onDuplicate={() => duplicateStep(selStep)} rows={rows} colTypeMap={colTypeMap} />
               )}
             </div>
           </div>
@@ -1158,6 +1491,33 @@ export default function Dashboard() {
       </div>
 
       {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} onSelect={addStep} onClose={() => setContextMenu(null)} />}
+
+      {/* Cell right-click menu */}
+      {cellMenu && (
+        <div style={{position:'fixed',top:cellMenu.y,left:cellMenu.x,zIndex:9999}} className="bg-white rounded-lg shadow-xl border border-gray-200 py-1 min-w-[180px] animate-in"
+          onClick={() => setCellMenu(null)}>
+          <button onClick={() => { runForCell(cellMenu.row, cellMenu.col); setCellMenu(null); }}
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-indigo-50 text-xs font-medium">
+            ▶ Run this cell
+          </button>
+          <button onClick={() => { const step = steps.find(s=>s.outputColumn===cellMenu.col); if(step) runSingleStep(step, [rows[cellMenu.row]]); setCellMenu(null); }}
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-indigo-50 text-xs font-medium">
+            ▶ Run this row (all steps)
+          </button>
+          <button onClick={() => { startEdit(cellMenu.row, cellMenu.col); setCellMenu(null); }}
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-gray-50 text-xs">
+            ✏️ Edit cell
+          </button>
+          <button onClick={() => {
+            const newData = {...rows[cellMenu.row].data, [cellMenu.col]: ''};
+            setRows(prev => {const c=[...prev]; c[cellMenu.row]={...c[cellMenu.row],data:newData}; return c;});
+            supabase.from('list_rows').update({data:newData}).eq('id',rows[cellMenu.row].id);
+            setCellMenu(null);
+          }} className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-red-50 text-xs text-red-500">
+            🗑 Clear cell
+          </button>
+        </div>
+      )}
 
       {/* ─── Filter Panel ─── */}
       {showFilterPanel && (
