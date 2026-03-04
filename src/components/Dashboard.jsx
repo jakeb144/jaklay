@@ -1,7 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+'use client';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createBrowserClient } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
 import { INTEGRATIONS } from '@/lib/engine';
 import Papa from 'papaparse';
 
@@ -322,8 +326,6 @@ function ConditionBuilder({ cond, columns, onChange, apiKeys }) {
     </div>
   );
 }
-  );
-}
 
 function WaterfallBuilder({ sources, onUpdate, keys }) {
   const finders = Object.entries(INTEG_SETUP).filter(([,v]) => v.type === "email_finder");
@@ -579,7 +581,9 @@ function StepConfig({ step, columns, keys, onUpdate, onDelete, onDuplicate, rows
 
 // ═══════════════════════════════════════════════════════════════════════════
 export default function Dashboard() {
-  const [supabase] = useState(() => createBrowserClient());
+  const { supabase: authSupabase, user, profile, canRun, incrementUsage, isAdmin, signOut } = useAuth();
+  const [supabase] = useState(() => authSupabase || createBrowserClient());
+  const userId = user?.id || 'default';
   const [keys, setKeys] = useState({});
   const [lists, setLists] = useState([]);
   const [currentListId, setCurrentListId] = useState(null);
@@ -725,11 +729,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     (async () => {
-      const { data: keyData } = await supabase.from('api_keys').select('provider, encrypted_key').eq('user_id','default');
+      const { data: keyData } = await supabase.from('api_keys').select('provider, encrypted_key').eq('user_id',userId);
       const k = {}; (keyData||[]).forEach(r => { k[r.provider] = r.encrypted_key; }); setKeys(k);
-      const { data: listData } = await supabase.from('lists').select('*').eq('user_id','default').order('created_at',{ascending:false});
+      const { data: listData } = await supabase.from('lists').select('*').eq('user_id',userId).order('created_at',{ascending:false});
       setLists(listData || []);
-      const { data: wfData } = await supabase.from('workflows').select('*').eq('user_id','default').order('created_at',{ascending:false});
+      const { data: wfData } = await supabase.from('workflows').select('*').eq('user_id',userId).order('created_at',{ascending:false});
       setWorkflows(wfData || []);
       setLoaded(true);
     })();
@@ -758,7 +762,7 @@ export default function Dashboard() {
 
   const saveKey = async (provider, key) => {
     setKeys(prev => ({ ...prev, [provider]: key }));
-    await supabase.from('api_keys').upsert({ user_id: 'default', provider, encrypted_key: key }, { onConflict: 'user_id,provider' });
+    await supabase.from('api_keys').upsert({ user_id: userId, provider, encrypted_key: key }, { onConflict: 'user_id,provider' });
   };
 
   const loadListRows = async (listId) => {
@@ -797,7 +801,7 @@ export default function Dashboard() {
         setColTypeMap(typeMap);
 
         const { data: newList } = await supabase.from('lists').insert({
-          user_id: 'default', name: file.name.replace(/\.csv$/i, ''), row_count: csvRows.length, original_columns: cols,
+          user_id: userId, name: file.name.replace(/\.csv$/i, ''), row_count: csvRows.length, original_columns: cols,
         }).select().single();
         if (!newList) return;
         const inserts = csvRows.map((r, i) => ({ list_id: newList.id, row_index: i, data: r }));
@@ -893,7 +897,7 @@ export default function Dashboard() {
     const name = window.prompt('Template name:');
     if (!name) return;
     const { data: wf } = await supabase.from('workflows').insert({
-      user_id: 'default', name, steps, description: JSON.stringify({ templateColumns }),
+      user_id: userId, name, steps, description: JSON.stringify({ templateColumns }),
     }).select().single();
     if (wf) setWorkflows(prev => [wf, ...prev]);
   };
@@ -1069,6 +1073,7 @@ export default function Dashboard() {
 
   const runAll = async () => {
     if (steps.length === 0) return;
+    if (!canRun()) { alert('You\'ve hit your plan limit. Upgrade at /pricing to continue.'); return; }
     abortRef.current = false;
     for (let si = 0; si < steps.length; si++) {
       if (abortRef.current) break;
@@ -1206,6 +1211,23 @@ export default function Dashboard() {
             </button>}
             {hasData && <button onClick={() => { mergeRef.current?.click(); }} className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-lg text-xs font-semibold">⊕ Merge CSV</button>}
             <input ref={mergeRef} type="file" accept=".csv" className="hidden" onChange={e => handleMergeFile(e.target.files?.[0])} />
+          {/* User / Plan / Account */}
+          <div className="h-5 w-px bg-gray-200 mx-1" />
+          {profile && (
+            <div className="flex items-center gap-2">
+              <span className={["px-2 py-0.5 rounded-full text-[9px] font-bold uppercase",
+                profile.plan==='admin'?'bg-red-100 text-red-600':
+                profile.plan==='pro'?'bg-indigo-100 text-indigo-600':
+                profile.plan==='starter'?'bg-emerald-100 text-emerald-600':
+                'bg-gray-100 text-gray-500'].join(" ")}>{profile.plan}</span>
+              {profile.plan === 'free' && (
+                <span className="text-[10px] text-gray-400 font-mono">{profile.enrichment_runs_used}/{profile.enrichment_runs_limit} runs</span>
+              )}
+              <a href="/pricing" className="text-[10px] text-indigo-500 hover:underline font-medium">Upgrade</a>
+              {isAdmin && <a href="/admin" className="text-[10px] text-red-500 hover:underline font-medium">Admin</a>}
+              <button onClick={signOut} className="text-[10px] text-gray-400 hover:text-gray-600">Sign out</button>
+            </div>
+          )}
           </>}
         </div>
       </header>
@@ -1686,4 +1708,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
