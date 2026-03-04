@@ -49,6 +49,10 @@ const INTEG_SETUP = {
     setup: "1. perplexity.ai/settings/api\n2. Generate API key\n3. Best for: web research (live internet)" },
   millionverifier: { icon: "✅", name: "MillionVerifier", type: "verification",
     setup: "1. millionverifier.com → Sign up\n2. Dashboard → API key\n3. ~$0.0005/email (500 free)" },
+  emaillable: { icon: "📬", name: "Emaillable", type: "verification",
+    setup: "1. emaillable.com → Sign up\n2. Dashboard → API Key\n3. Great for re-verifying catch-alls/riskys\n4. Returns: deliverable, risky, undeliverable, unknown + confidence score\n\nPricing: 1,000 free, then ~$0.003/email" },
+  bounceban: { icon: "🛡️", name: "BounceBan", type: "verification",
+    setup: "1. bounceban.com → Sign up\n2. Dashboard → API Key → Copy\n3. Specializes in catch-all detection\n4. Returns: valid, invalid, disposable, catch_all, unknown\n\nPricing: 100 free, ~$0.002/email" },
   findymail: { icon: "📧", name: "FindyMail", type: "email_finder",
     setup: "1. findymail.com → Settings → API\n2. ~$0.02/email found" },
   hunter: { icon: "🔶", name: "Hunter.io", type: "email_finder",
@@ -177,14 +181,27 @@ function StepConfig({ step, columns, keys, onUpdate, onDelete }) {
       </>}
 
       {/* Email Verification */}
-      {step.type === "api_verify" && <div>
-        <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Email column</label>
-        <select value={step.emailColumn||""} onChange={e => u("emailColumn",e.target.value)} className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
-          <option value="">Select...</option>
-          {columns.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <p className="text-[11px] text-gray-400 mt-1">Returns: ok, catch_all, invalid, error, unknown</p>
-      </div>}
+      {step.type === "api_verify" && <>
+        <div>
+          <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Verification Provider</label>
+          <select value={step.verifyProvider||"millionverifier"} onChange={e => u("verifyProvider",e.target.value)} className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+            {Object.entries(INTEG_SETUP).filter(([,v]) => v.type === "verification").map(([id,v]) => <option key={id} value={id}>{v.icon} {v.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Email column</label>
+          <select value={step.emailColumn||""} onChange={e => u("emailColumn",e.target.value)} className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+            <option value="">Select...</option>
+            {columns.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div className="p-2.5 bg-gray-50 rounded-lg text-[11px] text-gray-400 space-y-1">
+          <p><strong>MillionVerifier:</strong> ok, catch_all, invalid, error, unknown</p>
+          <p><strong>Emaillable:</strong> deliverable, risky, undeliverable, unknown + score</p>
+          <p><strong>BounceBan:</strong> valid, invalid, disposable, catch_all, unknown</p>
+          <p className="text-indigo-500 mt-1">💡 Tip: Use MillionVerifier first, then Emaillable or BounceBan to re-verify catch-alls</p>
+        </div>
+      </>}
 
       {/* Find Email */}
       {step.type === "api_find_email" && <>
@@ -391,7 +408,7 @@ export default function Dashboard() {
       id: uid(), type, outputColumn: '', prompt: '', provider: type === 'web_research' ? 'perplexity' : 'openai',
       model: type === 'web_research' ? 'sonar' : 'gpt-4o-mini', condition: null, emailColumn: '', fnCol: '', lnCol: '', domainCol: '',
       waterfallSources: type === 'waterfall' ? ['leadmagic','findymail','prospeo','dropcontact','hunter','datagma','wiza','rocketreach'] : [],
-      formula: '', campaignId: '', emailProvider: 'findymail',
+      formula: '', campaignId: '', emailProvider: 'findymail', verifyProvider: 'millionverifier',
     };
     setSteps(prev => [...prev, s]);
     setSelectedStep(s.id);
