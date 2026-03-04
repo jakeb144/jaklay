@@ -219,25 +219,68 @@ function ContextMenu({ x, y, onSelect, onClose }) {
   );
 }
 
-function ConditionBuilder({ cond, columns, onChange }) {
+function ConditionBuilder({ cond, columns, onChange, apiKeys }) {
   const c = cond || { column: "", operator: "equals", value: "" };
   const ops = ["equals","not_equals","contains","not_contains","is_empty","is_not_empty","greater_than","less_than","starts_with"];
+  const [aiInput, setAiInput] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const generateCondition = async () => {
+    if (!aiInput.trim()) return;
+    const key = apiKeys?.openai;
+    if (!key) { alert("Add your OpenAI key in the Keys panel first."); return; }
+    setAiLoading(true);
+    try {
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
+        body: JSON.stringify({
+          model: "gpt-4o-mini", max_tokens: 200,
+          messages: [
+            { role: "system", content: "You convert plain English conditions into structured JSON. Available columns: " + columns.join(", ") + ". Available operators: " + ops.join(", ") + ". Return ONLY a JSON object with keys: column, operator, value. No markdown, no explanation. Examples:\n\"only run for people I haven't emailed yet\" → {\"column\":\"email_status\",\"operator\":\"is_empty\",\"value\":\"\"}\n\"only if qualified is yes\" → {\"column\":\"qualified\",\"operator\":\"equals\",\"value\":\"YES\"}\n\"skip if email is invalid\" → {\"column\":\"mv_result\",\"operator\":\"not_equals\",\"value\":\"ok\"}\nPick the most logical column name from the available columns. If the user refers to a concept, map it to the closest matching column." },
+            { role: "user", content: aiInput }
+          ],
+        }),
+      });
+      const d = await r.json();
+      const text = d.choices?.[0]?.message?.content || "";
+      const clean = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(clean);
+      if (parsed.column && parsed.operator) onChange(parsed);
+    } catch (e) { alert("Couldn't parse that — try being more specific about which column."); }
+    setAiLoading(false);
+  };
+
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-[10px] text-gray-400 font-bold uppercase">Run if</span>
-      <select value={c.column} onChange={e => onChange({...c, column: e.target.value})} className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white outline-none">
-        <option value="">Always</option>
-        {columns.map(col => <option key={col} value={col}>{col}</option>)}
-      </select>
-      {c.column && <>
-        <select value={c.operator} onChange={e => onChange({...c, operator: e.target.value})} className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white">
-          {ops.map(o => <option key={o} value={o}>{o.replace(/_/g," ")}</option>)}
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] text-gray-400 font-bold uppercase">Run if</span>
+        <select value={c.column} onChange={e => onChange({...c, column: e.target.value})} className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white outline-none">
+          <option value="">Always</option>
+          {columns.map(col => <option key={col} value={col}>{col}</option>)}
         </select>
-        {!["is_empty","is_not_empty"].includes(c.operator) && (
-          <input value={c.value||""} onChange={e => onChange({...c, value: e.target.value})} placeholder="value" className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white w-24" />
-        )}
-      </>}
+        {c.column && <>
+          <select value={c.operator} onChange={e => onChange({...c, operator: e.target.value})} className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white">
+            {ops.map(o => <option key={o} value={o}>{o.replace(/_/g," ")}</option>)}
+          </select>
+          {!["is_empty","is_not_empty"].includes(c.operator) && (
+            <input value={c.value||""} onChange={e => onChange({...c, value: e.target.value})} placeholder="value" className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white w-24" />
+          )}
+        </>}
+      </div>
+      {/* AI plain-English condition builder */}
+      <div className="flex gap-1.5">
+        <input value={aiInput} onChange={e => setAiInput(e.target.value)} placeholder="Describe in plain English... e.g. 'only people I haven't emailed yet'"
+          onKeyDown={e => { if (e.key === 'Enter') generateCondition(); }}
+          className="flex-1 text-xs border border-indigo-200 rounded-md px-2 py-1.5 bg-indigo-50/50 placeholder-indigo-300 outline-none focus:ring-1 focus:ring-indigo-300" />
+        <button onClick={generateCondition} disabled={aiLoading}
+          className="px-2.5 py-1 bg-indigo-500 text-white rounded-md text-[10px] font-semibold hover:bg-indigo-600 disabled:opacity-50 whitespace-nowrap">
+          {aiLoading ? "..." : "✨ AI"}
+        </button>
+      </div>
     </div>
+  );
+}
   );
 }
 
@@ -311,7 +354,7 @@ function StepConfig({ step, columns, keys, onUpdate, onDelete, onDuplicate, rows
           Condition {step.condition?.column && <span className="text-indigo-500 normal-case">· {step.condition.column} {step.condition.operator}</span>}
         </summary>
         <div className="mt-2 p-2.5 bg-gray-50 rounded-lg border border-gray-100">
-          <ConditionBuilder cond={step.condition} columns={columns} onChange={c => u("condition",c)} />
+          <ConditionBuilder cond={step.condition} columns={columns} onChange={c => u("condition",c)} apiKeys={keys} />
         </div>
       </details>
 
@@ -478,7 +521,15 @@ export default function Dashboard() {
   const [dragCol, setDragCol] = useState(null);
   const [dragOverCol, setDragOverCol] = useState(null);
   const [templateColumns, setTemplateColumns] = useState([]);
+  const [sortCol, setSortCol] = useState(null);
+  const [sortDir, setSortDir] = useState('asc');
+  const [filters, setFilters] = useState([]); // [{ column, operator, value }]
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [showMergePanel, setShowMergePanel] = useState(false);
+  const [mergeFile, setMergeFile] = useState(null);
+  const [mergePreview, setMergePreview] = useState(null); // { columns, rows, matchCol }
   const fileRef = useRef();
+  const mergeRef = useRef();
   const pollRef = useRef();
 
   const enrichCols = steps.map(s => s.outputColumn).filter(Boolean);
@@ -487,6 +538,110 @@ export default function Dashboard() {
   const allColumns = (columnOrder || defaultOrder).filter(c => !c.includes('__report'));
   const hasData = rows.length > 0;
   const hasWorkflow = steps.length > 0;
+
+  // ─── Filter rows ───────────────────────────────────────────────────
+  const filteredRows = rows.filter(row => {
+    return filters.every(f => {
+      if (!f.column) return true;
+      const val = (row.data?.[f.column] || "").toString().toLowerCase().trim();
+      const target = (f.value || "").toLowerCase().trim();
+      switch (f.operator) {
+        case "equals": return val === target;
+        case "not_equals": return val !== target;
+        case "contains": return val.includes(target);
+        case "not_contains": return !val.includes(target);
+        case "is_empty": return val === "";
+        case "is_not_empty": return val !== "";
+        case "greater_than": return parseFloat(val) > parseFloat(target);
+        case "less_than": return parseFloat(val) < parseFloat(target);
+        case "starts_with": return val.startsWith(target);
+        default: return true;
+      }
+    });
+  });
+
+  // ─── Sort rows ─────────────────────────────────────────────────────
+  const displayRows = sortCol ? [...filteredRows].sort((a, b) => {
+    const av = (a.data?.[sortCol] || "").toString();
+    const bv = (b.data?.[sortCol] || "").toString();
+    const numA = parseFloat(av), numB = parseFloat(bv);
+    if (!isNaN(numA) && !isNaN(numB)) return sortDir === 'asc' ? numA - numB : numB - numA;
+    return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+  }) : filteredRows;
+
+  // ─── Column click sort ─────────────────────────────────────────────
+  const handleSortClick = (col) => {
+    if (sortCol === col) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }
+    else { setSortCol(col); setSortDir('asc'); }
+  };
+
+  // ─── Get unique values for filter suggestions ──────────────────────
+  const getUniqueValues = (col) => {
+    const vals = new Set();
+    rows.forEach(r => { const v = r.data?.[col]; if (v) vals.add(v.toString()); });
+    return [...vals].sort().slice(0, 50);
+  };
+
+  // ─── CSV Merge ─────────────────────────────────────────────────────
+  const handleMergeFile = (file) => {
+    if (!file) return;
+    Papa.parse(file, {
+      header: true, skipEmptyLines: true,
+      complete: (results) => {
+        setMergePreview({
+          columns: results.meta.fields || [],
+          rows: results.data,
+          matchCol: '',
+          targetCol: '',
+          mergeColumns: [],
+        });
+        setShowMergePanel(true);
+      },
+    });
+  };
+
+  const executeMerge = async () => {
+    if (!mergePreview?.matchCol || !mergePreview?.targetCol || mergePreview.mergeColumns.length === 0) return;
+    const lookup = {};
+    mergePreview.rows.forEach(r => {
+      const key = (r[mergePreview.matchCol] || "").toString().toLowerCase().trim();
+      if (key) lookup[key] = r;
+    });
+
+    const updatedRows = rows.map(row => {
+      const key = (row.data?.[mergePreview.targetCol] || "").toString().toLowerCase().trim();
+      const match = lookup[key];
+      if (!match) return row;
+      const newData = { ...row.data };
+      mergePreview.mergeColumns.forEach(col => {
+        if (match[col] !== undefined && match[col] !== "") {
+          newData[col] = match[col];
+        }
+      });
+      return { ...row, data: newData };
+    });
+
+    // Update in DB
+    for (const row of updatedRows) {
+      if (row.data !== rows.find(r => r.id === row.id)?.data) {
+        await supabase.from('list_rows').update({ data: row.data }).eq('id', row.id);
+      }
+    }
+
+    // Add new columns to origColumns if needed
+    const newCols = mergePreview.mergeColumns.filter(c => !origColumns.includes(c));
+    if (newCols.length > 0) {
+      const updated = [...origColumns, ...newCols];
+      setOrigColumns(updated);
+      if (currentListId) {
+        await supabase.from('lists').update({ original_columns: updated }).eq('id', currentListId);
+      }
+    }
+
+    setRows(updatedRows);
+    setShowMergePanel(false);
+    setMergePreview(null);
+  };
 
   useEffect(() => {
     (async () => {
@@ -531,8 +686,20 @@ export default function Dashboard() {
   };
 
   const loadListRows = async (listId) => {
-    const { data } = await supabase.from('list_rows').select('*').eq('list_id', listId).order('row_index', { ascending: true });
-    setRows(data || []);
+    // Supabase defaults to 1000 rows max — paginate to get ALL rows
+    let allData = [];
+    let from = 0;
+    const pageSize = 5000;
+    while (true) {
+      const { data, error } = await supabase.from('list_rows').select('*')
+        .eq('list_id', listId).order('row_index', { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (error || !data || data.length === 0) break;
+      allData = allData.concat(data);
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
+    setRows(allData);
     setCurrentListId(listId);
   };
 
@@ -667,18 +834,23 @@ export default function Dashboard() {
         const step = steps.find(s => s.outputColumn === col);
         const stType = step ? STEP_TYPES.find(t => t.id === step.type) : null;
         const isBase = !isEnrich && templateColumns.includes(col);
+        const isSorted = sortCol === col;
         return (
-          <th key={col} onClick={() => handleColClick(col)} draggable
+          <th key={col}
+            onClick={e => { if (isEnrich && !e.shiftKey) handleColClick(col); else handleSortClick(col); }}
+            draggable
             onDragStart={() => handleColDragStart(col)} onDragOver={e => { e.preventDefault(); handleColDragOver(col); }}
             onDrop={() => handleColDrop(col)} onDragEnd={() => { setDragCol(null); setDragOverCol(null); }}
             className={["sticky top-0 z-10 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide border-b-2 whitespace-nowrap min-w-[130px] select-none transition-all cursor-pointer",
               isEnrich ? 'bg-indigo-50/80 text-indigo-600 border-indigo-200 hover:bg-indigo-100' : isBase ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100',
-              dragOverCol === col ? 'ring-2 ring-indigo-400 ring-inset' : '', dragCol === col ? 'opacity-40' : ''].join(' ')}>
+              dragOverCol === col ? 'ring-2 ring-indigo-400 ring-inset' : '', dragCol === col ? 'opacity-40' : '',
+              isSorted ? 'ring-1 ring-indigo-300' : ''].join(' ')}>
             <div className="flex items-center gap-1.5">
               <span className="cursor-grab text-gray-300 text-[10px] hover:text-gray-500">⠿</span>
               {stType && <span className="text-xs">{stType.icon}</span>}
               <span className="truncate">{col}</span>
-              {isEnrich && <span className="ml-auto text-[8px] opacity-0 hover:opacity-100 text-indigo-400">edit</span>}
+              {isSorted && <span className="ml-auto text-indigo-500 text-[10px]">{sortDir === 'asc' ? '↑' : '↓'}</span>}
+              {!isSorted && isEnrich && <span className="ml-auto text-[8px] opacity-0 hover:opacity-100 text-indigo-400">click=edit shift+click=sort</span>}
             </div>
           </th>
         );
@@ -724,6 +896,11 @@ export default function Dashboard() {
               <button onClick={runAll} disabled={!hasData} className="px-4 py-1.5 bg-indigo-500 text-white rounded-lg text-xs font-semibold hover:bg-indigo-600 disabled:opacity-40 shadow-sm shadow-indigo-200">▶ Run All</button>
             )}
             {hasData && <button onClick={exportCSV} className="px-3 py-1.5 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-lg text-xs font-semibold">↓ Export</button>}
+            {hasData && <button onClick={() => setShowFilterPanel(!showFilterPanel)} className={["px-3 py-1.5 border rounded-lg text-xs font-semibold", filters.length > 0 ? "bg-amber-50 text-amber-600 border-amber-200" : "bg-gray-50 text-gray-500 border-gray-200"].join(" ")}>
+              🔍 Filter{filters.length > 0 ? " ("+filters.length+")" : ""}
+            </button>}
+            {hasData && <button onClick={() => { mergeRef.current?.click(); }} className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-lg text-xs font-semibold">⊕ Merge CSV</button>}
+            <input ref={mergeRef} type="file" accept=".csv" className="hidden" onChange={e => handleMergeFile(e.target.files?.[0])} />
           </>}
         </div>
       </header>
@@ -849,8 +1026,10 @@ export default function Dashboard() {
                 <table className="min-w-full border-collapse text-xs" style={{width:'max-content',minWidth:'100%'}}>
                   <thead>{renderTableHeader()}</thead>
                   <tbody>
-                    {rows.map((row, ri) => (
-                      <tr key={row.id || ri} className={[ri%2?'bg-gray-50/30':'bg-white','hover:bg-indigo-50/20 transition'].join(' ')}>
+                    {displayRows.map((row, di) => {
+                      const ri = rows.findIndex(r => r.id === row.id);
+                      return (
+                      <tr key={row.id || di} className={[di%2?'bg-gray-50/30':'bg-white','hover:bg-indigo-50/20 transition'].join(' ')}>
                         <td className="px-3 py-1.5 text-center text-[10px] text-gray-300 border-b border-gray-50 font-mono">{ri+1}</td>
                         {allColumns.map(col => {
                           const val = row.data?.[col] || '';
@@ -870,15 +1049,19 @@ export default function Dashboard() {
                           );
                         })}
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               </div>
               <div className="px-4 py-2 text-[11px] text-gray-400 border-t border-gray-200 bg-white font-mono flex items-center gap-3">
-                {rows.length} rows · {allColumns.length} cols · {steps.length} steps
-                <span className="text-gray-300">·</span>
-                <span className="text-[10px] text-gray-300">Right-click header → add column · Drag headers to reorder · Click enrichment cols to edit</span>
-                <button onClick={() => fileRef.current?.click()} className="ml-auto text-indigo-500 hover:text-indigo-700 font-sans font-medium">↑ Import</button>
+                {displayRows.length}{filters.length > 0 ? '/'+rows.length : ''} rows · {allColumns.length} cols · {steps.length} steps
+                {sortCol && <><span className="text-gray-300">·</span><span className="text-indigo-500">sorted by {sortCol} {sortDir}</span>
+                  <button onClick={() => { setSortCol(null); setSortDir('asc'); }} className="text-red-400 hover:text-red-600 text-[10px]">× clear sort</button></>}
+                {filters.length > 0 && <><span className="text-gray-300">·</span><span className="text-amber-500">{filters.length} filter{filters.length>1?'s':''} active</span>
+                  <button onClick={() => setFilters([])} className="text-red-400 hover:text-red-600 text-[10px]">× clear all</button></>}
+                <span className="text-gray-300 ml-auto">·</span>
+                <span className="text-[10px] text-gray-300">Click header = sort · Shift+click enrichment = sort · Right-click = add column</span>
+                <button onClick={() => fileRef.current?.click()} className="text-indigo-500 hover:text-indigo-700 font-sans font-medium">↑ Import</button>
                 <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
               </div>
             </>
@@ -975,6 +1158,172 @@ export default function Dashboard() {
       </div>
 
       {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} onSelect={addStep} onClose={() => setContextMenu(null)} />}
+
+      {/* ─── Filter Panel ─── */}
+      {showFilterPanel && (
+        <div className="fixed inset-0 z-[100] flex items-start justify-center pt-20" onClick={() => setShowFilterPanel(false)}>
+          <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-[480px] max-h-[70vh] overflow-auto animate-in" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <span className="font-bold text-sm">🔍 Filters</span>
+              <div className="flex gap-2">
+                {filters.length > 0 && <button onClick={() => setFilters([])} className="text-xs text-red-400 hover:text-red-600">Clear all</button>}
+                <button onClick={() => setShowFilterPanel(false)} className="text-gray-400 hover:text-gray-600">×</button>
+              </div>
+            </div>
+            <div className="p-4 space-y-3">
+              {filters.map((f, i) => {
+                const uniqueVals = f.column ? getUniqueValues(f.column) : [];
+                return (
+                  <div key={i} className="p-3 bg-gray-50 rounded-lg border border-gray-100 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <select value={f.column} onChange={e => { const nf=[...filters]; nf[i]={...f, column: e.target.value}; setFilters(nf); }}
+                        className="flex-1 text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white">
+                        <option value="">Select column...</option>
+                        {allColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <select value={f.operator} onChange={e => { const nf=[...filters]; nf[i]={...f, operator: e.target.value}; setFilters(nf); }}
+                        className="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white">
+                        {["equals","not_equals","contains","not_contains","is_empty","is_not_empty","starts_with","greater_than","less_than"].map(o =>
+                          <option key={o} value={o}>{o.replace(/_/g," ")}</option>)}
+                      </select>
+                      <button onClick={() => setFilters(filters.filter((_,idx) => idx!==i))} className="text-red-400 hover:text-red-600 text-sm">×</button>
+                    </div>
+                    {!["is_empty","is_not_empty"].includes(f.operator) && (
+                      <div>
+                        <input value={f.value||""} onChange={e => { const nf=[...filters]; nf[i]={...f, value: e.target.value}; setFilters(nf); }}
+                          placeholder="Type value or click below..." className="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white mb-1.5" />
+                        {uniqueVals.length > 0 && (
+                          <div className="flex flex-wrap gap-1 max-h-24 overflow-auto">
+                            {uniqueVals.map(v => (
+                              <button key={v} onClick={() => { const nf=[...filters]; nf[i]={...f, value: v}; setFilters(nf); }}
+                                className={["px-2 py-0.5 rounded text-[10px] border transition",
+                                  f.value === v ? "bg-indigo-500 text-white border-indigo-500" : "bg-white border-gray-200 text-gray-600 hover:border-indigo-300"].join(" ")}>
+                                {v.length > 30 ? v.slice(0,30)+'...' : v}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <button onClick={() => setFilters([...filters, { column: "", operator: "equals", value: "" }])}
+                className="w-full py-2 border-2 border-dashed border-gray-200 rounded-lg text-xs text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition">
+                + Add filter
+              </button>
+              {/* Quick filters */}
+              <div className="pt-2 border-t border-gray-100">
+                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Quick Filters</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: "Not emailed", column: "email_status", op: "is_empty" },
+                    { label: "Qualified only", column: "qualified", op: "equals", val: "YES" },
+                    { label: "Valid emails", column: "mv_result", op: "equals", val: "ok" },
+                    { label: "Invalid emails", column: "mv_result", op: "equals", val: "invalid" },
+                    { label: "Catch-all", column: "mv_result", op: "equals", val: "catch_all" },
+                    { label: "Has errors", column: "", op: "contains", val: "⚠" },
+                  ].map(qf => {
+                    const matchCol = allColumns.find(c => c.toLowerCase().includes(qf.column)) || qf.column;
+                    return (
+                      <button key={qf.label} onClick={() => setFilters([...filters, { column: matchCol || qf.column, operator: qf.op, value: qf.val || "" }])}
+                        className="px-2.5 py-1 bg-white border border-gray-200 rounded-lg text-[11px] text-gray-600 hover:border-indigo-300 hover:text-indigo-600 transition">
+                        {qf.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Merge CSV Panel ─── */}
+      {showMergePanel && mergePreview && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30" onClick={() => { setShowMergePanel(false); setMergePreview(null); }}>
+          <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-[560px] max-h-[80vh] overflow-auto animate-in" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <span className="font-bold text-sm">⊕ Merge CSV Data</span>
+              <button onClick={() => { setShowMergePanel(false); setMergePreview(null); }} className="text-gray-400 hover:text-gray-600">×</button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
+                <strong>How it works:</strong> Pick a matching column from each CSV (e.g. "email" in both). Jaklay finds matching rows and merges the selected columns from your new file into the existing list.
+              </div>
+
+              <div className="text-xs text-gray-500">{mergePreview.rows.length} rows · {mergePreview.columns.length} columns in uploaded file</div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase">Match column in NEW file</label>
+                  <select value={mergePreview.matchCol} onChange={e => setMergePreview({...mergePreview, matchCol: e.target.value})}
+                    className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs">
+                    <option value="">Select...</option>
+                    {mergePreview.columns.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase">Match column in EXISTING list</label>
+                  <select value={mergePreview.targetCol} onChange={e => setMergePreview({...mergePreview, targetCol: e.target.value})}
+                    className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs">
+                    <option value="">Select...</option>
+                    {allColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase">Columns to merge in (select which data to bring over)</label>
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {mergePreview.columns.filter(c => c !== mergePreview.matchCol).map(c => {
+                    const selected = (mergePreview.mergeColumns || []).includes(c);
+                    return (
+                      <button key={c} onClick={() => {
+                        const mc = mergePreview.mergeColumns || [];
+                        setMergePreview({...mergePreview, mergeColumns: selected ? mc.filter(x => x!==c) : [...mc, c]});
+                      }} className={["px-2.5 py-1 rounded-lg text-xs border transition",
+                        selected ? "bg-indigo-500 text-white border-indigo-500" : "bg-white border-gray-200 text-gray-600 hover:border-indigo-300"].join(" ")}>
+                        {c}
+                      </button>
+                    );
+                  })}
+                </div>
+                {mergePreview.columns.length > 2 && (
+                  <button onClick={() => setMergePreview({...mergePreview, mergeColumns: mergePreview.columns.filter(c => c !== mergePreview.matchCol)})}
+                    className="text-[10px] text-indigo-500 font-medium mt-1.5 hover:underline">Select all</button>
+                )}
+              </div>
+
+              {/* Preview */}
+              {mergePreview.matchCol && mergePreview.targetCol && (mergePreview.mergeColumns||[]).length > 0 && (
+                <div className="p-3 bg-gray-50 rounded-lg text-xs">
+                  <div className="font-semibold mb-1">Preview:</div>
+                  <p className="text-gray-500">
+                    Will match rows where <strong className="text-indigo-600">{mergePreview.matchCol}</strong> (new) = <strong className="text-indigo-600">{mergePreview.targetCol}</strong> (existing), then merge: <strong>{(mergePreview.mergeColumns||[]).join(", ")}</strong>
+                  </p>
+                  {(() => {
+                    const lookup = {};
+                    mergePreview.rows.forEach(r => { const k = (r[mergePreview.matchCol]||"").toLowerCase().trim(); if(k) lookup[k]=true; });
+                    const matchCount = rows.filter(r => lookup[(r.data?.[mergePreview.targetCol]||"").toLowerCase().trim()]).length;
+                    return <p className="mt-1 font-semibold text-emerald-600">{matchCount} of {rows.length} rows will be matched and updated.</p>;
+                  })()}
+                </div>
+              )}
+
+              <div className="flex gap-2 justify-end pt-2 border-t border-gray-100">
+                <button onClick={() => { setShowMergePanel(false); setMergePreview(null); }} className="px-4 py-2 text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+                <button onClick={executeMerge}
+                  disabled={!mergePreview.matchCol || !mergePreview.targetCol || (mergePreview.mergeColumns||[]).length === 0}
+                  className="px-4 py-2 bg-indigo-500 text-white rounded-lg text-xs font-semibold hover:bg-indigo-600 disabled:opacity-40 transition">
+                  ⊕ Merge {(mergePreview.mergeColumns||[]).length} column{(mergePreview.mergeColumns||[]).length!==1?'s':''}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
