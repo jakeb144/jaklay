@@ -27,6 +27,8 @@ export const INTEGRATIONS = {
   datagma: { name: "Datagma", type: "email_finder" },
   wiza: { name: "Wiza", type: "email_finder" },
   rocketreach: { name: "RocketReach", type: "email_finder" },
+  emaillable: { name: "Emaillable", type: "verification" },
+  bounceban: { name: "BounceBan", type: "verification" },
   instantly: { name: "Instantly", type: "outreach" },
   apify: { name: "Apify", type: "scraping" },
   phantombuster: { name: "PhantomBuster", type: "scraping" },
@@ -107,11 +109,35 @@ export async function callAI(provider, model, prompt, keys) {
 }
 
 // ─── Email Verification ───────────────────────────────────────
-export async function verifyEmail(email, keys) {
-  const key = keys.millionverifier;
-  if (!key) throw new Error("No MillionVerifier key");
-  const r = await fetch(`https://api.millionverifier.com/api/v3/?api=${key}&email=${encodeURIComponent(email)}`);
-  return await r.json();
+export async function verifyEmail(provider, email, keys) {
+  if (provider === "millionverifier" || !provider) {
+    const key = keys.millionverifier;
+    if (!key) throw new Error("No MillionVerifier key");
+    const r = await fetch(`https://api.millionverifier.com/api/v3/?api=${key}&email=${encodeURIComponent(email)}`);
+    return await r.json();
+  }
+
+  if (provider === "emaillable") {
+    const key = keys.emaillable;
+    if (!key) throw new Error("No Emaillable key");
+    const r = await fetch(`https://api.emaillable.com/v1/verify?email=${encodeURIComponent(email)}&api_key=${key}`);
+    const d = await r.json();
+    // Emaillable returns: deliverable, risky, undeliverable, unknown
+    return { result: d.state || d.reason, score: d.score, raw: d };
+  }
+
+  if (provider === "bounceban") {
+    const key = keys.bounceban;
+    if (!key) throw new Error("No BounceBan key");
+    const r = await fetch(`https://api.bounceban.com/v1/verify/single?email=${encodeURIComponent(email)}`, {
+      headers: { "x-api-key": key },
+    });
+    const d = await r.json();
+    // BounceBan returns: valid, invalid, disposable, catch_all, unknown
+    return { result: d.status || d.result, raw: d };
+  }
+
+  throw new Error("Unknown verification provider: " + provider);
 }
 
 // ─── Email Finders ────────────────────────────────────────────
@@ -169,20 +195,66 @@ export async function findEmail(provider, params, keys) {
   return { email: "", error: `${provider} integration call pattern needed` };
 }
 
+// ─── Provider cost tiers (cents per lookup, approximate) ──────
+export const PROVIDER_COSTS = {
+  leadmagic:   { cost: 0.1,  freeCredits: 50,   label: "$0.001/lookup" },
+  hunter:      { cost: 0.0,  freeCredits: 25,   label: "25 free/mo" },
+  wiza:        { cost: 0.15, freeCredits: 20,   label: "$0.0015/lookup" },
+  prospeo:     { cost: 0.2,  freeCredits: 75,   label: "75 free credits" },
+  dropcontact: { cost: 0.24, freeCredits: 25,   label: "€0.0024/lookup" },
+  datagma:     { cost: 0.3,  freeCredits: 50,   label: "$0.003/lookup" },
+  findymail:   { cost: 2.0,  freeCredits: 0,    label: "$0.02/lookup" },
+  rocketreach: { cost: 4.8,  freeCredits: 5,    label: "$0.048/lookup" },
+};
+
 // ─── Waterfall: try multiple sources sequentially ─────────────
 export async function waterfallFindEmail(sources, params, keys) {
+  const report = {
+    attempts: [],    // { source, status, email, error, durationMs }
+    winner: null,
+    totalMs: 0,
+  };
+  const t0 = Date.now();
+
   for (const src of sources) {
+    const attempt = { source: src, status: "skipped", email: "", error: "", durationMs: 0 };
+    if (!keys[src]) {
+      attempt.status = "no_key";
+      report.attempts.push(attempt);
+      continue;
+    }
+    const ts = Date.now();
     try {
-      if (!keys[src]) continue;
       const result = await findEmail(src, params, keys);
+      attempt.durationMs = Date.now() - ts;
       if (result.email && result.email.includes("@")) {
-        return { email: result.email, source: src, confidence: result.confidence };
+        attempt.status = "found";
+        attempt.email = result.email;
+        attempt.confidence = result.confidence;
+        report.attempts.push(attempt);
+        report.winner = src;
+        break;
+      } else {
+        attempt.status = "not_found";
+        report.attempts.push(attempt);
       }
     } catch (e) {
-      continue; // try next source
+      attempt.durationMs = Date.now() - ts;
+      attempt.status = "error";
+      attempt.error = e.message;
+      report.attempts.push(attempt);
     }
   }
-  return { email: "", source: "none", error: "All sources exhausted" };
+
+  report.totalMs = Date.now() - t0;
+  const winAttempt = report.attempts.find(a => a.status === "found");
+
+  return {
+    email: winAttempt?.email || "",
+    source: report.winner || "none",
+    confidence: winAttempt?.confidence,
+    report,
+  };
 }
 
 // ─── Push to Instantly ────────────────────────────────────────
@@ -274,7 +346,7 @@ export async function processStep(step, rowData, keys) {
       case "api_verify": {
         const email = rowData[step.emailColumn];
         if (!email) return { value: "⏭ No email" };
-        const d = await verifyEmail(email, keys);
+        const d = await verifyEmail(step.verifyProvider || "millionverifier", email, keys);
         result = d.result || d.quality || JSON.stringify(d);
         break;
       }
@@ -292,7 +364,11 @@ export async function processStep(step, rowData, keys) {
         const params = { first_name: rowData[step.fnCol] || "", last_name: rowData[step.lnCol] || "", domain };
         const d = await waterfallFindEmail(step.waterfallSources || [], params, keys);
         result = d.email ? `${d.email} (via ${INTEGRATIONS[d.source]?.name || d.source})` : "Not found";
-        break;
+        // Store the full report in a companion column
+        return {
+          value: result,
+          waterfallReport: d.report,
+        };
       }
 
       case "formula": {

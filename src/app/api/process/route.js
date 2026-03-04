@@ -68,6 +68,10 @@ export async function POST(req) {
 
       // Update row data
       const updatedData = { ...rowData, [currentStep.outputColumn]: result.value };
+      // Store waterfall report if present
+      if (result.waterfallReport) {
+        updatedData[currentStep.outputColumn + '__report'] = JSON.stringify(result.waterfallReport);
+      }
       await supabase.from('list_rows').update({
         data: updatedData, updated_at: new Date().toISOString(),
       }).eq('id', row.id);

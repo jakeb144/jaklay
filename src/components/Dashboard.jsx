@@ -5,12 +5,10 @@ import { createBrowserClient } from '@/lib/supabase';
 import { INTEGRATIONS } from '@/lib/engine';
 import Papa from 'papaparse';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
 const STEP_TYPES = [
   { id: "ai_enrich", label: "Use AI", icon: "🤖", desc: "AI enrichment with custom prompts", cat: "enrichment" },
   { id: "web_research", label: "Web Research", icon: "🌐", desc: "Search web via Perplexity", cat: "enrichment" },
-  { id: "api_verify", label: "Verify Email", icon: "✅", desc: "MillionVerifier validation", cat: "enrichment" },
+  { id: "api_verify", label: "Verify Email", icon: "✅", desc: "Email verification", cat: "enrichment" },
   { id: "api_find_email", label: "Find Email", icon: "📧", desc: "Find work email for contact", cat: "enrichment" },
   { id: "waterfall", label: "Waterfall", icon: "💧", desc: "Try multiple sources sequentially", cat: "enrichment" },
   { id: "formula", label: "Formula", icon: "ƒ", desc: "Compute from other columns", cat: "logic" },
@@ -41,179 +39,355 @@ const PROMPT_LIBRARY = [
 ];
 
 const INTEG_SETUP = {
-  anthropic: { icon: "🟣", name: "Claude (Anthropic)", type: "ai",
-    setup: "1. console.anthropic.com → API Keys\n2. Generate key (sk-ant-...)\n3. Paste in Keys panel" },
-  openai: { icon: "🟢", name: "OpenAI", type: "ai",
-    setup: "1. platform.openai.com → API Keys\n2. Create secret key\n3. Paste in Keys panel" },
-  perplexity: { icon: "🔵", name: "Perplexity", type: "ai",
-    setup: "1. perplexity.ai/settings/api\n2. Generate API key\n3. Best for: web research (live internet)" },
-  millionverifier: { icon: "✅", name: "MillionVerifier", type: "verification",
-    setup: "1. millionverifier.com → Sign up\n2. Dashboard → API key\n3. ~$0.0005/email (500 free)" },
-  emaillable: { icon: "📬", name: "Emaillable", type: "verification",
-    setup: "1. emaillable.com → Sign up\n2. Dashboard → API Key\n3. Great for re-verifying catch-alls/riskys\n4. Returns: deliverable, risky, undeliverable, unknown + confidence score\n\nPricing: 1,000 free, then ~$0.003/email" },
-  bounceban: { icon: "🛡️", name: "BounceBan", type: "verification",
-    setup: "1. bounceban.com → Sign up\n2. Dashboard → API Key → Copy\n3. Specializes in catch-all detection\n4. Returns: valid, invalid, disposable, catch_all, unknown\n\nPricing: 100 free, ~$0.002/email" },
-  findymail: { icon: "📧", name: "FindyMail", type: "email_finder",
-    setup: "1. findymail.com → Settings → API\n2. ~$0.02/email found" },
-  hunter: { icon: "🔶", name: "Hunter.io", type: "email_finder",
-    setup: "1. hunter.io → API → Copy key\n2. 25 free searches/mo" },
+  anthropic: { icon: "🟣", name: "Claude (Anthropic)", type: "ai", setup: "1. console.anthropic.com → API Keys\n2. Generate key (sk-ant-...)\n3. Paste in Keys panel" },
+  openai: { icon: "🟢", name: "OpenAI", type: "ai", setup: "1. platform.openai.com → API Keys\n2. Create secret key\n3. Paste in Keys panel" },
+  perplexity: { icon: "🔵", name: "Perplexity", type: "ai", setup: "1. perplexity.ai/settings/api\n2. Generate API key\n3. Best for: web research (live internet)" },
+  millionverifier: { icon: "✅", name: "MillionVerifier", type: "verification", setup: "1. millionverifier.com → Sign up\n2. Dashboard → API key\n3. ~$0.0005/email (500 free)" },
+  emaillable: { icon: "📬", name: "Emaillable", type: "verification", setup: "1. emaillable.com → Sign up\n2. Dashboard → API Key\n3. Great for re-verifying catch-alls/riskys\n4. Returns: deliverable, risky, undeliverable, unknown + score\n\nPricing: 1,000 free, then ~$0.003/email" },
+  bounceban: { icon: "🛡️", name: "BounceBan", type: "verification", setup: "1. bounceban.com → Sign up\n2. Dashboard → API Key\n3. Specializes in catch-all detection\n4. Returns: valid, invalid, disposable, catch_all, unknown\n\nPricing: 100 free, ~$0.002/email" },
+  findymail: { icon: "📧", name: "FindyMail", type: "email_finder", setup: "1. findymail.com → Settings → API\n2. ~$0.02/email found" },
+  hunter: { icon: "🔶", name: "Hunter.io", type: "email_finder", setup: "1. hunter.io → API → Copy key\n2. 25 free searches/mo" },
   prospeo: { icon: "🔴", name: "Prospeo", type: "email_finder", setup: "1. prospeo.io → Account → API Key" },
   dropcontact: { icon: "🟦", name: "DropContact", type: "email_finder", setup: "1. dropcontact.com → Settings → API" },
   leadmagic: { icon: "🟪", name: "LeadMagic", type: "email_finder", setup: "1. leadmagic.io → Dashboard → API Key" },
   datagma: { icon: "🔷", name: "Datagma", type: "email_finder", setup: "1. datagma.com → API section" },
   wiza: { icon: "🟨", name: "Wiza", type: "email_finder", setup: "1. wiza.co → Settings → API" },
   rocketreach: { icon: "🚀", name: "RocketReach", type: "email_finder", setup: "1. rocketreach.co → Integrations → API" },
-  instantly: { icon: "⚡", name: "Instantly", type: "outreach",
-    setup: "1. instantly.ai → Settings → Integrations → API\n2. Used to push leads into campaigns" },
-  apify: { icon: "🕷️", name: "Apify", type: "scraping",
-    setup: "1. apify.com → Settings → API Tokens\n2. Free $5/mo. Google Maps, LinkedIn, social" },
-  phantombuster: { icon: "👻", name: "PhantomBuster", type: "scraping",
-    setup: "1. phantombuster.com → Account → API Keys" },
-  ocean: { icon: "🌊", name: "Ocean.io", type: "data",
-    setup: "1. ocean.io → Settings → API\n2. Similar companies, lookalike audiences" },
-  google_search: { icon: "🔍", name: "Serper (Google)", type: "scraping",
-    setup: "1. serper.dev → Dashboard → API Key\n2. 2,500 free searches" },
+  instantly: { icon: "⚡", name: "Instantly", type: "outreach", setup: "1. instantly.ai → Settings → Integrations → API\n2. Used to push leads into campaigns" },
+  apify: { icon: "🕷️", name: "Apify", type: "scraping", setup: "1. apify.com → Settings → API Tokens\n2. Free $5/mo. Google Maps, LinkedIn, social" },
+  phantombuster: { icon: "👻", name: "PhantomBuster", type: "scraping", setup: "1. phantombuster.com → Account → API Keys" },
+  ocean: { icon: "🌊", name: "Ocean.io", type: "data", setup: "1. ocean.io → Settings → API" },
+  google_search: { icon: "🔍", name: "Serper (Google)", type: "scraping", setup: "1. serper.dev → Dashboard → API Key\n2. 2,500 free searches" },
 };
 
-const uid = () => Math.random().toString(36).slice(2, 10);
+let _uid = 0;
+const uid = () => 's' + Date.now().toString(36) + (++_uid).toString(36);
+
+const PROVIDER_COSTS = {
+  hunter:      { cost: 0.0,  free: 25,  unit: "25 free/mo", tier: "free" },
+  leadmagic:   { cost: 0.1,  free: 50,  unit: "$0.001/lookup", tier: "$" },
+  wiza:        { cost: 0.15, free: 20,  unit: "$0.0015/lookup", tier: "$" },
+  prospeo:     { cost: 0.2,  free: 75,  unit: "75 free credits", tier: "$" },
+  dropcontact: { cost: 0.24, free: 25,  unit: "€0.0024/lookup", tier: "$" },
+  datagma:     { cost: 0.3,  free: 50,  unit: "$0.003/lookup", tier: "$" },
+  findymail:   { cost: 2.0,  free: 0,   unit: "$0.02/lookup", tier: "$$" },
+  rocketreach: { cost: 4.8,  free: 5,   unit: "$0.048/lookup", tier: "$$$" },
+};
+
+function sortSourcesByCost(sources) {
+  return [...sources].sort((a, b) => (PROVIDER_COSTS[a]?.cost || 99) - (PROVIDER_COSTS[b]?.cost || 99));
+}
+
+// ─── Waterfall Report Component ──────────────────────────────────────────────
+
+function WaterfallReport({ rows, stepOutputCol }) {
+  if (!rows || rows.length === 0) return null;
+
+  // Aggregate reports from all rows
+  const stats = {};
+  let totalProcessed = 0;
+  let totalFound = 0;
+
+  rows.forEach(row => {
+    const reportJson = row.data?.[stepOutputCol + '__report'];
+    if (!reportJson) return;
+    totalProcessed++;
+    let report;
+    try { report = JSON.parse(reportJson); } catch { return; }
+
+    if (report.winner) totalFound++;
+
+    (report.attempts || []).forEach(a => {
+      if (!stats[a.source]) stats[a.source] = { found: 0, not_found: 0, error: 0, no_key: 0, skipped: 0, totalMs: 0, calls: 0 };
+      stats[a.source][a.status] = (stats[a.source][a.status] || 0) + 1;
+      stats[a.source].totalMs += a.durationMs || 0;
+      if (a.status !== 'no_key' && a.status !== 'skipped') stats[a.source].calls++;
+    });
+  });
+
+  if (totalProcessed === 0) return <div className="p-3 text-xs text-gray-400 text-center">No waterfall data yet. Run the step first.</div>;
+
+  const sortedSources = Object.entries(stats).sort((a, b) => (PROVIDER_COSTS[a[0]]?.cost || 99) - (PROVIDER_COSTS[b[0]]?.cost || 99));
+
+  return (
+    <div className="space-y-2">
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+          <div className="text-lg font-bold text-gray-800">{totalProcessed}</div>
+          <div className="text-[10px] text-gray-400">Processed</div>
+        </div>
+        <div className="bg-emerald-50 rounded-lg p-2.5 text-center">
+          <div className="text-lg font-bold text-emerald-600">{totalFound}</div>
+          <div className="text-[10px] text-emerald-500">Found</div>
+        </div>
+        <div className="bg-red-50 rounded-lg p-2.5 text-center">
+          <div className="text-lg font-bold text-red-500">{totalProcessed - totalFound}</div>
+          <div className="text-[10px] text-red-400">Not Found</div>
+        </div>
+      </div>
+
+      {/* Per-source breakdown */}
+      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pt-2">Per-Source Breakdown (cheapest → most expensive)</div>
+      {sortedSources.map(([source, s]) => {
+        const integ = INTEG_SETUP[source];
+        const cost = PROVIDER_COSTS[source];
+        const total = s.found + s.not_found + s.error;
+        const hitRate = total > 0 ? Math.round((s.found / total) * 100) : 0;
+        const avgMs = s.calls > 0 ? Math.round(s.totalMs / s.calls) : 0;
+        const estSpend = cost ? (s.calls * cost.cost / 100).toFixed(2) : '?';
+        const freeRemaining = cost ? Math.max(0, cost.free - s.calls) : null;
+
+        return (
+          <div key={source} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+            <div className="flex items-center gap-2 mb-2">
+              <span>{integ?.icon || '●'}</span>
+              <span className="font-semibold text-xs flex-1">{integ?.name || source}</span>
+              <span className="text-[10px] text-gray-400 font-mono">{cost?.unit || ''}</span>
+            </div>
+
+            {/* Stats bar */}
+            {total > 0 && (
+              <div className="flex h-2 rounded-full overflow-hidden mb-2 bg-gray-200">
+                {s.found > 0 && <div className="bg-emerald-500 transition-all" style={{ width: (s.found/total*100)+'%' }} />}
+                {s.not_found > 0 && <div className="bg-gray-300 transition-all" style={{ width: (s.not_found/total*100)+'%' }} />}
+                {s.error > 0 && <div className="bg-red-400 transition-all" style={{ width: (s.error/total*100)+'%' }} />}
+              </div>
+            )}
+
+            <div className="grid grid-cols-4 gap-1 text-[10px]">
+              <div><span className="font-semibold text-emerald-600">{s.found}</span> <span className="text-gray-400">found</span></div>
+              <div><span className="font-semibold text-gray-500">{s.not_found}</span> <span className="text-gray-400">miss</span></div>
+              <div><span className="font-semibold text-red-500">{s.error}</span> <span className="text-gray-400">err</span></div>
+              <div><span className="font-semibold text-indigo-600">{hitRate}%</span> <span className="text-gray-400">rate</span></div>
+            </div>
+
+            <div className="flex items-center gap-3 mt-1.5 text-[10px]">
+              <span className="text-gray-400">{s.calls} API calls</span>
+              <span className="text-gray-400">avg {avgMs}ms</span>
+              <span className="text-gray-500 font-medium">~${estSpend} spent</span>
+            </div>
+
+            {/* Free tier warning */}
+            {freeRemaining !== null && cost.free > 0 && (
+              <div className={['mt-1.5 px-2 py-1 rounded text-[10px] font-medium',
+                freeRemaining === 0 ? 'bg-red-50 text-red-600' : freeRemaining < 10 ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'].join(' ')}>
+                {freeRemaining === 0
+                  ? '⚠️ Free tier exhausted — now paying per lookup. Top up or remove from waterfall.'
+                  : freeRemaining < 10
+                    ? '⚡ ~' + freeRemaining + ' free lookups remaining'
+                    : '✓ ~' + freeRemaining + ' of ' + cost.free + ' free lookups remaining'}
+              </div>
+            )}
+
+            {/* No key warning */}
+            {s.no_key > 0 && (
+              <div className="mt-1.5 px-2 py-1 rounded bg-red-50 text-red-500 text-[10px] font-medium">
+                🔑 No API key set — {s.no_key} rows skipped. Add key in Keys panel.
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const corePatterns = [/^first/i, /^last/i, /name/i, /company/i, /domain/i, /website/i, /email/i, /phone/i, /title/i, /city/i, /state/i, /country/i, /industry/i];
-function sortColumns(orig, enrich) {
+function autoSortColumns(orig, enrich) {
   const core = [], other = [];
   orig.forEach(c => (corePatterns.some(p => p.test(c)) ? core : other).push(c));
   return [...core, ...other, ...enrich];
 }
 
-// ─── Sub-Components ──────────────────────────────────────────────────────────
+function ContextMenu({ x, y, onSelect, onClose }) {
+  useEffect(() => { const h = () => onClose(); window.addEventListener('click', h); return () => window.removeEventListener('click', h); }, [onClose]);
+  return (
+    <div style={{ position: 'fixed', top: y, left: x, zIndex: 9999 }} className="bg-white rounded-xl shadow-xl border border-gray-200 py-2 min-w-[220px] animate-in">
+      <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Add Enrichment Column</div>
+      {['enrichment','logic','action'].map(cat => (
+        <div key={cat}>
+          <div className="px-3 pt-2 pb-0.5 text-[9px] text-gray-300 uppercase tracking-wider">{cat}</div>
+          {STEP_TYPES.filter(s => s.cat === cat).map(st => (
+            <button key={st.id} onClick={() => onSelect(st.id)} className="flex items-center gap-2.5 w-full px-3 py-1.5 text-left hover:bg-indigo-50 transition text-sm">
+              <span>{st.icon}</span><span className="font-medium text-xs">{st.label}</span>
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function ConditionBuilder({ cond, columns, onChange }) {
   const c = cond || { column: "", operator: "equals", value: "" };
   const ops = ["equals","not_equals","contains","not_contains","is_empty","is_not_empty","greater_than","less_than","starts_with"];
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-xs text-gray-400 font-semibold">IF</span>
-      <select value={c.column} onChange={e => onChange({...c, column: e.target.value})} className="text-xs border border-gray-200 rounded px-2 py-1 bg-white">
-        <option value="">column...</option>
+      <span className="text-[10px] text-gray-400 font-bold uppercase">Run if</span>
+      <select value={c.column} onChange={e => onChange({...c, column: e.target.value})} className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white outline-none">
+        <option value="">Always</option>
         {columns.map(col => <option key={col} value={col}>{col}</option>)}
       </select>
-      <select value={c.operator} onChange={e => onChange({...c, operator: e.target.value})} className="text-xs border border-gray-200 rounded px-2 py-1 bg-white">
-        {ops.map(o => <option key={o} value={o}>{o.replace(/_/g," ")}</option>)}
-      </select>
-      {!["is_empty","is_not_empty"].includes(c.operator) && (
-        <input value={c.value||""} onChange={e => onChange({...c, value: e.target.value})} placeholder="value" className="text-xs border border-gray-200 rounded px-2 py-1 bg-white w-20" />
-      )}
+      {c.column && <>
+        <select value={c.operator} onChange={e => onChange({...c, operator: e.target.value})} className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white">
+          {ops.map(o => <option key={o} value={o}>{o.replace(/_/g," ")}</option>)}
+        </select>
+        {!["is_empty","is_not_empty"].includes(c.operator) && (
+          <input value={c.value||""} onChange={e => onChange({...c, value: e.target.value})} placeholder="value" className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white w-24" />
+        )}
+      </>}
     </div>
   );
 }
 
 function WaterfallBuilder({ sources, onUpdate, keys }) {
   const finders = Object.entries(INTEG_SETUP).filter(([,v]) => v.type === "email_finder");
+  const autoSort = () => onUpdate(sortSourcesByCost(sources));
   return (
     <div>
-      <p className="text-xs text-gray-400 mb-2">Tries each in order. Stops when valid email found.</p>
-      {sources.map((src, i) => (
-        <div key={i} className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 rounded-lg mb-1 border border-gray-100">
-          <span className="text-gray-300 cursor-grab text-xs">☰</span>
-          <span className="text-sm">{INTEG_SETUP[src]?.icon}</span>
-          <span className="flex-1 text-xs font-medium">{INTEG_SETUP[src]?.name || src}</span>
-          {keys[src] ? <span className="text-[10px] text-green-500">● Key</span> : <span className="text-[10px] text-red-400">● No key</span>}
-          <button onClick={() => { const a = [...sources]; a.splice(i,1); onUpdate(a); }} className="text-red-400 text-xs hover:text-red-600">×</button>
-        </div>
-      ))}
-      <select onChange={e => { if(e.target.value) { onUpdate([...sources, e.target.value]); e.target.value=""; }}} className="text-xs border border-gray-200 rounded px-2 py-1 mt-1 bg-white w-full" defaultValue="">
-        <option value="">+ Add source...</option>
-        {finders.filter(([id]) => !sources.includes(id)).map(([id,v]) => <option key={id} value={id}>{v.icon} {v.name}</option>)}
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[11px] text-gray-400">Tries each in order. Stops when valid email found.</p>
+        <button onClick={autoSort} className="text-[10px] text-indigo-500 font-semibold hover:underline">Sort by cost ↑</button>
+      </div>
+      {sources.map((src, i) => {
+        const cost = PROVIDER_COSTS[src];
+        return (
+          <div key={src+i} className="flex items-center gap-2 px-2.5 py-2 bg-gray-50 rounded-lg mb-1 border border-gray-100 group">
+            <span className="text-gray-300 cursor-grab text-xs">☰</span>
+            <span className="text-sm">{INTEG_SETUP[src]?.icon}</span>
+            <div className="flex-1 min-w-0">
+              <span className="text-xs font-medium">{INTEG_SETUP[src]?.name || src}</span>
+              {cost && <span className="ml-1.5 text-[9px] text-gray-400 font-mono">{cost.unit}</span>}
+            </div>
+            <span className="text-[10px] text-gray-300 font-mono">{i+1}</span>
+            {cost?.free > 0 && <span className="text-[9px] text-amber-500 font-medium">{cost.free} free</span>}
+            {keys[src] ? <span className="text-[9px] text-emerald-500 font-semibold">READY</span> : <span className="text-[9px] text-red-400">NO KEY</span>}
+            <button onClick={() => { const a=[...sources]; if(i>0){[a[i-1],a[i]]=[a[i],a[i-1]]; onUpdate(a);} }} className="opacity-0 group-hover:opacity-100 text-[10px] text-gray-400">↑</button>
+            <button onClick={() => { const a=[...sources]; if(i<a.length-1){[a[i],a[i+1]]=[a[i+1],a[i]]; onUpdate(a);} }} className="opacity-0 group-hover:opacity-100 text-[10px] text-gray-400">↓</button>
+            <button onClick={() => onUpdate(sources.filter((_,idx) => idx!==i))} className="opacity-0 group-hover:opacity-100 text-red-400 text-xs">×</button>
+          </div>
+        );
+      })}
+      <select onChange={e => { if(e.target.value) { onUpdate(sortSourcesByCost([...sources, e.target.value])); e.target.value=""; }}} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 mt-1.5 bg-white w-full" defaultValue="">
+        <option value="">+ Add source (auto-sorted by cost)...</option>
+        {finders.filter(([id]) => !sources.includes(id))
+          .sort(([a],[b]) => (PROVIDER_COSTS[a]?.cost||99) - (PROVIDER_COSTS[b]?.cost||99))
+          .map(([id,v]) => {
+            const c = PROVIDER_COSTS[id];
+            return <option key={id} value={id}>{v.icon} {v.name} {c ? '('+c.unit+')' : ''}</option>;
+          })}
       </select>
     </div>
   );
 }
 
-function StepConfig({ step, columns, keys, onUpdate, onDelete }) {
+function StepConfig({ step, columns, keys, onUpdate, onDelete, onDuplicate, rows }) {
   const u = (f,v) => onUpdate({...step,[f]:v});
   const aiProviders = Object.entries(INTEG_SETUP).filter(([,v]) => v.type === "ai");
   const emailFinders = Object.entries(INTEG_SETUP).filter(([,v]) => v.type === "email_finder");
+  const verifiers = Object.entries(INTEG_SETUP).filter(([,v]) => v.type === "verification");
   const models = INTEGRATIONS[step.provider]?.models || [];
+  const stepType = STEP_TYPES.find(t => t.id === step.type);
 
   return (
     <div className="p-4 space-y-3">
-      <div className="flex items-center gap-2">
-        <input value={step.outputColumn||""} onChange={e => u("outputColumn", e.target.value)} placeholder="Output column name..."
-          className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-200" />
-        <button onClick={onDelete} className="text-red-400 hover:text-red-600 text-lg">🗑</button>
+      <div className="flex items-center gap-2 pb-3 border-b border-gray-100">
+        <span className="text-xl">{stepType?.icon}</span>
+        <div className="flex-1">
+          <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">{stepType?.label}</div>
+          <input value={step.outputColumn||""} onChange={e => u("outputColumn", e.target.value)} placeholder="Column name..."
+            className="w-full mt-1 px-0 py-1 bg-transparent border-0 border-b-2 border-gray-200 text-base font-bold focus:outline-none focus:border-indigo-500 transition" />
+        </div>
+        <div className="flex gap-1">
+          <button onClick={onDuplicate} title="Duplicate" className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 text-sm">⧉</button>
+          <button onClick={onDelete} title="Delete" className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 text-red-400 text-sm">🗑</button>
+        </div>
       </div>
 
-      {/* Condition */}
-      <div className="p-2.5 bg-gray-50 rounded-lg border border-gray-100">
-        <ConditionBuilder cond={step.condition} columns={columns} onChange={c => u("condition",c)} />
-      </div>
+      <details className="group">
+        <summary className="cursor-pointer text-[11px] font-semibold text-gray-400 uppercase tracking-wide flex items-center gap-1">
+          <span className="group-open:rotate-90 transition-transform text-[10px]">▶</span>
+          Condition {step.condition?.column && <span className="text-indigo-500 normal-case">· {step.condition.column} {step.condition.operator}</span>}
+        </summary>
+        <div className="mt-2 p-2.5 bg-gray-50 rounded-lg border border-gray-100">
+          <ConditionBuilder cond={step.condition} columns={columns} onChange={c => u("condition",c)} />
+        </div>
+      </details>
 
-      {/* AI Enrich / Web Research */}
       {(step.type === "ai_enrich" || step.type === "web_research") && <>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase">Provider</label>
+            <select value={step.provider||"openai"} onChange={e => { u("provider",e.target.value); const m = INTEGRATIONS[e.target.value]?.models?.[0]; if(m) u("model",m.id); }}
+              className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-medium outline-none">
+              {aiProviders.map(([id,v]) => <option key={id} value={id}>{v.icon} {v.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase">Model</label>
+            <select value={step.model||""} onChange={e => u("model",e.target.value)}
+              className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-medium outline-none">
+              {models.map(m => <option key={m.id} value={m.id}>{m.label} (${m.cost})</option>)}
+            </select>
+          </div>
+        </div>
         <div>
-          <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Provider</label>
-          <select value={step.provider||"openai"} onChange={e => u("provider",e.target.value)} className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
-            {aiProviders.map(([id,v]) => <option key={id} value={id}>{v.icon} {v.name}</option>)}
+          <label className="text-[10px] font-bold text-gray-400 uppercase">Quick Load Prompt</label>
+          <select onChange={e => { const p = PROMPT_LIBRARY.find(x => x.id === e.target.value); if(p) { u("prompt",p.prompt); u("provider",p.provider); u("model",p.model); }}}
+            className="w-full mt-1 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700 font-medium cursor-pointer hover:bg-indigo-100 transition" defaultValue="">
+            <option value="">📚 Select a template to load into editor...</option>
+            {PROMPT_LIBRARY.map(p => <option key={p.id} value={p.id}>{p.cat}: {p.name} → {p.model}</option>)}
           </select>
         </div>
         <div>
-          <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Model</label>
-          <select value={step.model||""} onChange={e => u("model",e.target.value)} className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
-            {models.map(m => <option key={m.id} value={m.id}>{m.label} (${m.cost}/call)</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Prompt Library</label>
-          <select onChange={e => { const p = PROMPT_LIBRARY.find(x => x.id === e.target.value); if(p) { u("prompt",p.prompt); u("provider",p.provider); u("model",p.model); }}} className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm" defaultValue="">
-            <option value="">📚 Load template...</option>
-            {PROMPT_LIBRARY.map(p => <option key={p.id} value={p.id}>{p.cat}: {p.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Prompt</label>
-          <textarea value={step.prompt||""} onChange={e => u("prompt",e.target.value)} rows={6} placeholder="Use {column_name} to reference data..."
-            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-indigo-200" />
-          <div className="flex flex-wrap gap-1 mt-1">
-            {columns.slice(0,15).map(c => (
-              <button key={c} onClick={() => u("prompt",(step.prompt||"")+`{${c}}`)} className="px-2 py-0.5 bg-indigo-50 border border-indigo-200 rounded text-[10px] text-indigo-600 font-mono hover:bg-indigo-100">{`{${c}}`}</button>
+          <label className="text-[10px] font-bold text-gray-400 uppercase">Prompt</label>
+          <textarea value={step.prompt||""} onChange={e => u("prompt",e.target.value)} rows={8} placeholder="Write your prompt here. Use {column_name} to reference row data..."
+            className="w-full mt-1 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-indigo-200 leading-relaxed" />
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {columns.filter(c => !c.startsWith('__')).slice(0,20).map(c => (
+              <button key={c} onClick={() => u("prompt",(step.prompt||"")+"{"+c+"}")}
+                className="px-2 py-0.5 bg-indigo-50 border border-indigo-100 rounded text-[10px] text-indigo-600 font-mono hover:bg-indigo-100 transition">{"{"+c+"}"}</button>
             ))}
           </div>
         </div>
       </>}
 
-      {/* Email Verification */}
       {step.type === "api_verify" && <>
         <div>
-          <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Verification Provider</label>
-          <select value={step.verifyProvider||"millionverifier"} onChange={e => u("verifyProvider",e.target.value)} className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
-            {Object.entries(INTEG_SETUP).filter(([,v]) => v.type === "verification").map(([id,v]) => <option key={id} value={id}>{v.icon} {v.name}</option>)}
+          <label className="text-[10px] font-bold text-gray-400 uppercase">Provider</label>
+          <select value={step.verifyProvider||"millionverifier"} onChange={e => u("verifyProvider",e.target.value)}
+            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+            {verifiers.map(([id,v]) => <option key={id} value={id}>{v.icon} {v.name}</option>)}
           </select>
         </div>
         <div>
-          <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Email column</label>
-          <select value={step.emailColumn||""} onChange={e => u("emailColumn",e.target.value)} className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
-            <option value="">Select...</option>
+          <label className="text-[10px] font-bold text-gray-400 uppercase">Email Column</label>
+          <select value={step.emailColumn||""} onChange={e => u("emailColumn",e.target.value)}
+            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+            <option value="">Select column...</option>
             {columns.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
-        <div className="p-2.5 bg-gray-50 rounded-lg text-[11px] text-gray-400 space-y-1">
-          <p><strong>MillionVerifier:</strong> ok, catch_all, invalid, error, unknown</p>
-          <p><strong>Emaillable:</strong> deliverable, risky, undeliverable, unknown + score</p>
-          <p><strong>BounceBan:</strong> valid, invalid, disposable, catch_all, unknown</p>
-          <p className="text-indigo-500 mt-1">💡 Tip: Use MillionVerifier first, then Emaillable or BounceBan to re-verify catch-alls</p>
+        <div className="p-3 bg-gray-50 rounded-lg space-y-1 text-[11px] text-gray-400">
+          <p><strong className="text-gray-500">MillionVerifier:</strong> ok, catch_all, invalid, error, unknown</p>
+          <p><strong className="text-gray-500">Emaillable:</strong> deliverable, risky, undeliverable, unknown + score</p>
+          <p><strong className="text-gray-500">BounceBan:</strong> valid, invalid, disposable, catch_all, unknown</p>
+          <p className="text-indigo-500 pt-1">💡 Use MV first → then Emaillable or BounceBan to re-verify catch-alls</p>
         </div>
       </>}
 
-      {/* Find Email */}
       {step.type === "api_find_email" && <>
         <div>
-          <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Provider</label>
-          <select value={step.emailProvider||"findymail"} onChange={e => u("emailProvider",e.target.value)} className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+          <label className="text-[10px] font-bold text-gray-400 uppercase">Provider</label>
+          <select value={step.emailProvider||"findymail"} onChange={e => u("emailProvider",e.target.value)}
+            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
             {emailFinders.map(([id,v]) => <option key={id} value={id}>{v.icon} {v.name}</option>)}
           </select>
         </div>
         {["fnCol","lnCol","domainCol"].map(f => (
           <div key={f}>
-            <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{f==="fnCol"?"First Name":f==="lnCol"?"Last Name":"Domain/Website"} column</label>
+            <label className="text-[10px] font-bold text-gray-400 uppercase">{f==="fnCol"?"First Name":f==="lnCol"?"Last Name":"Domain/Website"} column</label>
             <select value={step[f]||""} onChange={e => u(f,e.target.value)} className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
               <option value="">Select...</option>
               {columns.map(c => <option key={c} value={c}>{c}</option>)}
@@ -222,40 +396,56 @@ function StepConfig({ step, columns, keys, onUpdate, onDelete }) {
         ))}
       </>}
 
-      {/* Waterfall */}
       {step.type === "waterfall" && <>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {["fnCol","lnCol","domainCol"].map(f => (
-            <div key={f} className="flex-1">
-              <label className="text-[10px] text-gray-400">{f==="fnCol"?"First":f==="lnCol"?"Last":"Domain"}</label>
-              <select value={step[f]||""} onChange={e => u(f,e.target.value)} className="w-full text-xs border border-gray-200 rounded px-2 py-1 bg-white">
-                <option value="">-</option>
+            <div key={f}>
+              <label className="text-[9px] font-bold text-gray-400 uppercase">{f==="fnCol"?"First":f==="lnCol"?"Last":"Domain"}</label>
+              <select value={step[f]||""} onChange={e => u(f,e.target.value)} className="w-full mt-0.5 text-xs border border-gray-200 rounded-md px-2 py-1 bg-white">
+                <option value="">—</option>
                 {columns.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
           ))}
         </div>
         <WaterfallBuilder sources={step.waterfallSources||[]} onUpdate={s => u("waterfallSources",s)} keys={keys} />
+
+        {/* Waterfall Report */}
+        {step.outputColumn && rows && rows.length > 0 && (
+          <details open className="mt-3 group">
+            <summary className="cursor-pointer text-[11px] font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1.5 pb-2 border-b border-gray-100">
+              <span className="group-open:rotate-90 transition-transform text-[10px]">▶</span>
+              📊 Waterfall Report
+            </summary>
+            <div className="mt-2">
+              <WaterfallReport rows={rows} stepOutputCol={step.outputColumn} />
+            </div>
+          </details>
+        )}
       </>}
 
-      {/* Formula */}
       {step.type === "formula" && <div>
-        <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Formula</label>
-        <textarea value={step.formula||""} onChange={e => u("formula",e.target.value)} rows={3}
+        <label className="text-[10px] font-bold text-gray-400 uppercase">Formula</label>
+        <textarea value={step.formula||""} onChange={e => u("formula",e.target.value)} rows={4}
           placeholder='IF {mv_result} is "ok" THEN {email} ELSE ""'
-          className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono resize-y" />
-        <p className="text-[10px] text-gray-400 mt-1">Supports: IF {"{col}"} is "val" THEN {"{col2}"} ELSE {"{col3}"} | OR | CONCAT()</p>
+          className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono resize-y leading-relaxed" />
+        <div className="text-[10px] text-gray-400 mt-1.5 space-y-0.5">
+          <p><code className="bg-gray-100 px-1 rounded">IF {"{col}"} is "val" THEN {"{col2}"} ELSE {"{col3}"}</code></p>
+          <p><code className="bg-gray-100 px-1 rounded">output {"{email}"} IF {"{mv}"} is "ok" OR {"{fm}"} is "ok"</code></p>
+          <p><code className="bg-gray-100 px-1 rounded">CONCAT({"{first}"}, " ", {"{last}"})</code></p>
+        </div>
       </div>}
 
-      {/* Push */}
       {step.type === "api_push" && <>
         <div>
-          <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Campaign ID</label>
-          <input value={step.campaignId||""} onChange={e => u("campaignId",e.target.value)} placeholder="From Instantly dashboard" className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm" />
+          <label className="text-[10px] font-bold text-gray-400 uppercase">Campaign ID</label>
+          <input value={step.campaignId||""} onChange={e => u("campaignId",e.target.value)} placeholder="From Instantly dashboard"
+            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm" />
         </div>
         <div>
-          <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Email column</label>
-          <select value={step.emailColumn||""} onChange={e => u("emailColumn",e.target.value)} className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+          <label className="text-[10px] font-bold text-gray-400 uppercase">Email column</label>
+          <select value={step.emailColumn||""} onChange={e => u("emailColumn",e.target.value)}
+            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
             <option value="">Select...</option>
             {columns.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
@@ -265,11 +455,7 @@ function StepConfig({ step, columns, keys, onUpdate, onDelete }) {
   );
 }
 
-
 // ═══════════════════════════════════════════════════════════════════════════
-//  MAIN DASHBOARD
-// ═══════════════════════════════════════════════════════════════════════════
-
 export default function Dashboard() {
   const [supabase] = useState(() => createBrowserClient());
   const [keys, setKeys] = useState({});
@@ -280,71 +466,70 @@ export default function Dashboard() {
   const [steps, setSteps] = useState([]);
   const [workflows, setWorkflows] = useState([]);
   const [selectedStep, setSelectedStep] = useState(null);
-  const [panel, setPanel] = useState(null); // keys | integrations | templates | prompts
+  const [panel, setPanel] = useState(null);
   const [testMode, setTestMode] = useState(0);
   const [activeJob, setActiveJob] = useState(null);
   const [jobProgress, setJobProgress] = useState(null);
   const [editCell, setEditCell] = useState(null);
   const [editValue, setEditValue] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [columnOrder, setColumnOrder] = useState(null);
+  const [dragCol, setDragCol] = useState(null);
+  const [dragOverCol, setDragOverCol] = useState(null);
+  const [templateColumns, setTemplateColumns] = useState([]);
   const fileRef = useRef();
   const pollRef = useRef();
 
   const enrichCols = steps.map(s => s.outputColumn).filter(Boolean);
-  const allColumns = sortColumns(origColumns, enrichCols);
+  const baseColumns = origColumns.length > 0 ? origColumns : templateColumns;
+  const defaultOrder = autoSortColumns(baseColumns, enrichCols).filter(c => !c.includes('__report'));
+  const allColumns = (columnOrder || defaultOrder).filter(c => !c.includes('__report'));
   const hasData = rows.length > 0;
+  const hasWorkflow = steps.length > 0;
 
-  // ─── Load initial data ──────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       const { data: keyData } = await supabase.from('api_keys').select('provider, encrypted_key').eq('user_id','default');
       const k = {}; (keyData||[]).forEach(r => { k[r.provider] = r.encrypted_key; }); setKeys(k);
-
       const { data: listData } = await supabase.from('lists').select('*').eq('user_id','default').order('created_at',{ascending:false});
       setLists(listData || []);
-
       const { data: wfData } = await supabase.from('workflows').select('*').eq('user_id','default').order('created_at',{ascending:false});
       setWorkflows(wfData || []);
-
       setLoaded(true);
     })();
   }, [supabase]);
 
-  // ─── Realtime subscription for live job updates ────────────────────────
   useEffect(() => {
     if (!currentListId) return;
-    const channel = supabase.channel(`list-${currentListId}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'list_rows', filter: `list_id=eq.${currentListId}` }, (payload) => {
+    const channel = supabase.channel('list-'+currentListId)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'list_rows', filter: 'list_id=eq.'+currentListId }, (payload) => {
         setRows(prev => prev.map(r => r.id === payload.new.id ? { ...r, data: payload.new.data } : r));
-      })
-      .subscribe();
+      }).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [supabase, currentListId]);
 
-  // ─── Job polling ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!activeJob) { if (pollRef.current) clearInterval(pollRef.current); return; }
     pollRef.current = setInterval(async () => {
-      const res = await fetch(`/api/workflow/status?job_id=${activeJob}`);
+      const res = await fetch('/api/workflow/status?job_id='+activeJob);
       const data = await res.json();
       setJobProgress(data);
-      if (data.status === 'completed' || data.status === 'stopped' || data.status === 'failed') {
+      if (['completed','stopped','failed'].includes(data.status)) {
         clearInterval(pollRef.current);
-        // Reload rows
         if (currentListId) loadListRows(currentListId);
       }
     }, 2000);
     return () => clearInterval(pollRef.current);
   }, [activeJob, currentListId]);
 
-  // ─── API Key management ────────────────────────────────────────────────
+  useEffect(() => { setColumnOrder(null); }, [steps.length, origColumns.length, templateColumns.length]);
+
   const saveKey = async (provider, key) => {
-    const newKeys = { ...keys, [provider]: key };
-    setKeys(newKeys);
+    setKeys(prev => ({ ...prev, [provider]: key }));
     await supabase.from('api_keys').upsert({ user_id: 'default', provider, encrypted_key: key }, { onConflict: 'user_id,provider' });
   };
 
-  // ─── List management ───────────────────────────────────────────────────
   const loadListRows = async (listId) => {
     const { data } = await supabase.from('list_rows').select('*').eq('list_id', listId).order('row_index', { ascending: true });
     setRows(data || []);
@@ -353,15 +538,9 @@ export default function Dashboard() {
 
   const loadList = async (listId) => {
     const { data: list } = await supabase.from('lists').select('*').eq('id', listId).single();
-    if (list) {
-      setOrigColumns(list.original_columns || []);
-      await loadListRows(listId);
-      setSteps([]);
-      setSelectedStep(null);
-    }
+    if (list) { setOrigColumns(list.original_columns || []); await loadListRows(listId); setSteps([]); setSelectedStep(null); setColumnOrder(null); }
   };
 
-  // ─── CSV Import ────────────────────────────────────────────────────────
   const handleFile = useCallback(async (file) => {
     if (!file) return;
     Papa.parse(file, {
@@ -369,104 +548,102 @@ export default function Dashboard() {
       complete: async (results) => {
         const cols = results.meta.fields || [];
         const csvRows = results.data;
-
-        // Create list
         const { data: newList } = await supabase.from('lists').insert({
           user_id: 'default', name: file.name.replace(/\.csv$/i, ''), row_count: csvRows.length, original_columns: cols,
         }).select().single();
-
         if (!newList) return;
-
-        // Insert rows in batches
         const inserts = csvRows.map((r, i) => ({ list_id: newList.id, row_index: i, data: r }));
-        for (let i = 0; i < inserts.length; i += 500) {
-          await supabase.from('list_rows').insert(inserts.slice(i, i + 500));
-        }
-
+        for (let i = 0; i < inserts.length; i += 500) { await supabase.from('list_rows').insert(inserts.slice(i, i + 500)); }
         setOrigColumns(cols);
         setLists(prev => [newList, ...prev]);
         await loadListRows(newList.id);
-        setSteps([]);
-        setSelectedStep(null);
+        setColumnOrder(null);
       },
     });
   }, [supabase]);
 
   const handleDrop = useCallback((e) => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f?.name.endsWith('.csv')) handleFile(f); }, [handleFile]);
 
-  // ─── CSV Export ────────────────────────────────────────────────────────
   const exportCSV = () => {
     const data = rows.map(r => { const o = {}; allColumns.forEach(c => o[c] = r.data?.[c] || ''); return o; });
     const csv = Papa.unparse(data, { columns: allColumns });
     const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `jaklay_export.csv`; a.click();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'jaklay_export.csv'; a.click();
   };
 
-  // ─── Step management ───────────────────────────────────────────────────
   const addStep = (type) => {
+    const st = STEP_TYPES.find(t => t.id === type);
     const s = {
-      id: uid(), type, outputColumn: '', prompt: '', provider: type === 'web_research' ? 'perplexity' : 'openai',
-      model: type === 'web_research' ? 'sonar' : 'gpt-4o-mini', condition: null, emailColumn: '', fnCol: '', lnCol: '', domainCol: '',
-      waterfallSources: type === 'waterfall' ? ['leadmagic','findymail','prospeo','dropcontact','hunter','datagma','wiza','rocketreach'] : [],
+      id: uid(), type, outputColumn: st?.label || 'new_column',
+      prompt: '', provider: type === 'web_research' ? 'perplexity' : 'openai',
+      model: type === 'web_research' ? 'sonar' : 'gpt-4o-mini', condition: null,
+      emailColumn: '', fnCol: '', lnCol: '', domainCol: '',
+      waterfallSources: type === 'waterfall' ? sortSourcesByCost(['leadmagic','findymail','prospeo','dropcontact','hunter','datagma','wiza','rocketreach']) : [],
       formula: '', campaignId: '', emailProvider: 'findymail', verifyProvider: 'millionverifier',
     };
     setSteps(prev => [...prev, s]);
     setSelectedStep(s.id);
     setPanel(null);
+    setContextMenu(null);
   };
 
   const updateStep = (s) => setSteps(prev => prev.map(x => x.id === s.id ? s : x));
   const deleteStep = (id) => { setSteps(prev => prev.filter(x => x.id !== id)); if (selectedStep === id) setSelectedStep(null); };
-  const moveStep = (i, dir) => setSteps(prev => { const a = [...prev]; const j = i+dir; if(j<0||j>=a.length)return a; [a[i],a[j]]=[a[j],a[i]]; return a; });
+  const duplicateStep = (step) => { const d = { ...step, id: uid(), outputColumn: step.outputColumn + '_copy' }; setSteps(prev => [...prev, d]); setSelectedStep(d.id); };
+  const moveStep = (i, dir) => setSteps(prev => { const a=[...prev]; const j=i+dir; if(j<0||j>=a.length)return a; [a[i],a[j]]=[a[j],a[i]]; return a; });
 
-  // ─── Workflow Templates ────────────────────────────────────────────────
+  const handleColDragStart = (col) => setDragCol(col);
+  const handleColDragOver = (col) => { if (dragCol && col !== dragCol) setDragOverCol(col); };
+  const handleColDrop = (col) => {
+    if (!dragCol || dragCol === col) { setDragCol(null); setDragOverCol(null); return; }
+    const order = columnOrder || [...allColumns];
+    const fi = order.indexOf(dragCol), ti = order.indexOf(col);
+    if (fi === -1 || ti === -1) return;
+    const n = [...order]; n.splice(fi, 1); n.splice(ti, 0, dragCol);
+    setColumnOrder(n); setDragCol(null); setDragOverCol(null);
+  };
+
+  const handleColClick = (col) => { const step = steps.find(s => s.outputColumn === col); if (step) { setSelectedStep(step.id); setPanel(null); } };
+
+  const addTemplateColumn = () => { const name = window.prompt('Base column name (e.g. company_name, email, website):'); if (name) setTemplateColumns(prev => [...prev, name]); };
+
   const saveWorkflow = async () => {
     const name = window.prompt('Template name:');
     if (!name) return;
     const { data: wf } = await supabase.from('workflows').insert({
-      user_id: 'default', name, steps,
+      user_id: 'default', name, steps, description: JSON.stringify({ templateColumns }),
     }).select().single();
     if (wf) setWorkflows(prev => [wf, ...prev]);
   };
 
   const loadWorkflow = (wf) => {
     setSteps((wf.steps || []).map(s => ({ ...s, id: uid() })));
-    setSelectedStep(null);
-    setPanel(null);
+    setSelectedStep(null); setPanel(null);
+    try { const d = JSON.parse(wf.description || '{}'); if (d.templateColumns) setTemplateColumns(d.templateColumns); } catch {}
   };
 
-  // ─── Run Workflows ────────────────────────────────────────────────────
   const runAll = async () => {
     if (!currentListId || steps.length === 0) return;
     const res = await fetch('/api/workflow/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ list_id: currentListId, steps, test_limit: testMode }),
     });
     const data = await res.json();
-    if (data.job_id) {
-      setActiveJob(data.job_id);
-      setJobProgress({ status: 'running', current_step: 0, current_row: 0, total_rows: rows.length, progress_pct: 0 });
-    }
+    if (data.job_id) { setActiveJob(data.job_id); setJobProgress({ status: 'running', progress_pct: 0 }); }
   };
 
   const stopJob = async () => {
     if (!activeJob) return;
-    await fetch('/api/workflow/status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: activeJob, action: 'stop' }),
-    });
+    await fetch('/api/workflow/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: activeJob, action: 'stop' }) });
     setActiveJob(null);
   };
 
-  // ─── Cell editing ──────────────────────────────────────────────────────
   const startEdit = (ri, col) => { setEditCell({ row: ri, col }); setEditValue(rows[ri]?.data?.[col] || ''); };
   const commitEdit = async () => {
     if (!editCell) return;
     const row = rows[editCell.row];
     const newData = { ...row.data, [editCell.col]: editValue };
-    setRows(prev => { const c = [...prev]; c[editCell.row] = { ...c[editCell.row], data: newData }; return c; });
+    setRows(prev => { const c=[...prev]; c[editCell.row]={...c[editCell.row], data: newData}; return c; });
     await supabase.from('list_rows').update({ data: newData }).eq('id', row.id);
     setEditCell(null);
   };
@@ -476,185 +653,219 @@ export default function Dashboard() {
   if (!loaded) return (
     <div className="h-screen flex items-center justify-center bg-gray-50">
       <div className="text-center">
-        <div className="w-12 h-12 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-mono font-bold text-xl mx-auto mb-3">J</div>
-        <p className="text-gray-400 text-sm">Loading Jaklay...</p>
+        <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-2xl flex items-center justify-center text-white font-mono font-bold text-2xl mx-auto mb-3 shadow-lg shadow-indigo-200">J</div>
+        <p className="text-gray-400 text-sm animate-pulse">Loading Jaklay...</p>
       </div>
     </div>
   );
 
-  // ═══════════════════════════════════════════════════════════════════════
-  //  RENDER
-  // ═══════════════════════════════════════════════════════════════════════
+  const renderTableHeader = () => (
+    <tr onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY }); }}>
+      <th className="sticky top-0 z-10 bg-gray-50 px-3 py-2.5 text-center text-[10px] font-semibold text-gray-400 uppercase border-b-2 border-gray-200 w-10">#</th>
+      {allColumns.map(col => {
+        const isEnrich = enrichCols.includes(col);
+        const step = steps.find(s => s.outputColumn === col);
+        const stType = step ? STEP_TYPES.find(t => t.id === step.type) : null;
+        const isBase = !isEnrich && templateColumns.includes(col);
+        return (
+          <th key={col} onClick={() => handleColClick(col)} draggable
+            onDragStart={() => handleColDragStart(col)} onDragOver={e => { e.preventDefault(); handleColDragOver(col); }}
+            onDrop={() => handleColDrop(col)} onDragEnd={() => { setDragCol(null); setDragOverCol(null); }}
+            className={["sticky top-0 z-10 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide border-b-2 whitespace-nowrap min-w-[130px] select-none transition-all cursor-pointer",
+              isEnrich ? 'bg-indigo-50/80 text-indigo-600 border-indigo-200 hover:bg-indigo-100' : isBase ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100',
+              dragOverCol === col ? 'ring-2 ring-indigo-400 ring-inset' : '', dragCol === col ? 'opacity-40' : ''].join(' ')}>
+            <div className="flex items-center gap-1.5">
+              <span className="cursor-grab text-gray-300 text-[10px] hover:text-gray-500">⠿</span>
+              {stType && <span className="text-xs">{stType.icon}</span>}
+              <span className="truncate">{col}</span>
+              {isEnrich && <span className="ml-auto text-[8px] opacity-0 hover:opacity-100 text-indigo-400">edit</span>}
+            </div>
+          </th>
+        );
+      })}
+    </tr>
+  );
+
   return (
     <div className="h-screen flex flex-col bg-gray-50 text-gray-900" style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
-
-      {/* ─── Header ─── */}
-      <header className="flex items-center justify-between px-4 py-2.5 bg-white border-b border-gray-200 z-50 flex-wrap gap-2">
+      <header className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 z-50 gap-2">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center text-white font-mono font-bold text-lg">J</div>
+          <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center text-white font-mono font-bold text-lg shadow-md shadow-indigo-200/50">J</div>
           <div>
-            <h1 className="text-sm font-extrabold tracking-widest font-mono text-gray-900 leading-none">JAKLAY</h1>
-            <span className="text-[11px] text-gray-400">{hasData ? `${rows.length} rows · ${allColumns.length} cols` : 'AI Data Enrichment'}</span>
+            <h1 className="text-sm font-extrabold tracking-[3px] font-mono text-gray-900 leading-none">JAKLAY</h1>
+            <span className="text-[10px] text-gray-400">{hasData ? rows.length+' rows · '+allColumns.length+' cols' : hasWorkflow ? steps.length+' steps configured' : 'AI Data Enrichment'}</span>
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           {lists.length > 0 && (
             <select value={currentListId||''} onChange={e => e.target.value && loadList(e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
+              className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white min-w-[140px]">
               <option value="">📋 My Lists...</option>
               {lists.map(l => <option key={l.id} value={l.id}>{l.name} ({l.row_count})</option>)}
             </select>
           )}
-          <div className="flex bg-gray-100 rounded-lg p-0.5">
+          <div className="flex bg-gray-100 rounded-lg p-0.5 gap-px">
             {[{k:'keys',l:'🔑 Keys'},{k:'integrations',l:'🔌 Setup'},{k:'templates',l:'📄 Templates'},{k:'prompts',l:'📚 Prompts'}].map(({k,l}) => (
-              <button key={k} onClick={() => { setPanel(panel===k?null:k); setSelectedStep(null); }}
-                className={`px-2.5 py-1 text-xs rounded-md transition ${panel===k ? 'bg-white shadow text-indigo-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}>{l}</button>
+              <button key={k} onClick={() => { setPanel(panel===k?null:k); if(panel!==k) setSelectedStep(null); }}
+                className={['px-2.5 py-1.5 text-xs rounded-md transition-all', panel===k ? 'bg-white shadow-sm text-indigo-600 font-semibold' : 'text-gray-500 hover:text-gray-700'].join(' ')}>{l}</button>
             ))}
           </div>
-          {hasData && <>
-            <div className="flex bg-gray-100 rounded-lg p-0.5 border-l border-gray-200 ml-1 pl-1">
+          {(hasData || hasWorkflow) && <>
+            <div className="h-5 w-px bg-gray-200 mx-1" />
+            <div className="flex bg-gray-100 rounded-lg p-0.5">
               {[0,1,5,10].map(n => (
                 <button key={n} onClick={() => setTestMode(n)}
-                  className={`px-2 py-1 text-xs rounded-md ${testMode===n?'bg-white shadow font-semibold text-indigo-600':'text-gray-400'}`}>{n||'All'}</button>
+                  className={['px-2 py-1 text-[11px] rounded-md transition', testMode===n?'bg-white shadow-sm font-semibold text-indigo-600':'text-gray-400'].join(' ')}>{n||'All'}</button>
               ))}
-              <span className="text-[10px] text-gray-400 px-1 self-center">rows</span>
             </div>
             {activeJob ? (
-              <button onClick={stopJob} className="px-3 py-1.5 bg-red-50 text-red-500 border border-red-200 rounded-lg text-xs font-semibold hover:bg-red-100">
-                ■ Stop {jobProgress ? `(${jobProgress.progress_pct||0}%)` : ''}
-              </button>
+              <button onClick={stopJob} className="px-3 py-1.5 bg-red-50 text-red-500 border border-red-200 rounded-lg text-xs font-semibold">■ Stop {jobProgress ? (jobProgress.progress_pct||0)+'%' : ''}</button>
             ) : (
-              <button onClick={runAll} className="px-4 py-1.5 bg-indigo-500 text-white rounded-lg text-xs font-semibold hover:bg-indigo-600">▶ Run All</button>
+              <button onClick={runAll} disabled={!hasData} className="px-4 py-1.5 bg-indigo-500 text-white rounded-lg text-xs font-semibold hover:bg-indigo-600 disabled:opacity-40 shadow-sm shadow-indigo-200">▶ Run All</button>
             )}
-            <button onClick={exportCSV} className="px-3 py-1.5 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-lg text-xs font-semibold">↓ Export</button>
+            {hasData && <button onClick={exportCSV} className="px-3 py-1.5 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-lg text-xs font-semibold">↓ Export</button>}
           </>}
         </div>
       </header>
 
-      {/* ─── Job Progress Bar ─── */}
-      {jobProgress && (jobProgress.status === 'running' || jobProgress.status === 'pending') && (
-        <div className="h-1 bg-gray-200">
-          <div className="h-full bg-indigo-500 transition-all duration-500" style={{width:`${jobProgress.progress_pct||0}%`}} />
-        </div>
+      {jobProgress && ['running','pending'].includes(jobProgress.status) && (
+        <div className="h-1 bg-gray-100"><div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-700" style={{width:(jobProgress.progress_pct||0)+'%'}} /></div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        {/* ─── LEFT: Steps Sidebar ─── */}
-        <div className="w-[260px] min-w-[260px] bg-white border-r border-gray-200 flex flex-col overflow-hidden">
-          <div className="px-3 py-2.5 border-b border-gray-200 flex items-center justify-between">
-            <span className="font-bold text-xs">Workflow Steps</span>
-            <span className="text-[11px] text-gray-400">{steps.length}</span>
+        {/* LEFT SIDEBAR */}
+        <div className="w-[240px] min-w-[240px] bg-white border-r border-gray-200 flex flex-col overflow-hidden">
+          <div className="px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
+            <span className="font-bold text-xs text-gray-700">Workflow Steps</span>
+            <span className="text-[10px] text-gray-300 font-mono">{steps.length}</span>
           </div>
-
-          {/* Steps */}
-          <div className="flex-1 overflow-auto p-1.5 space-y-1">
+          <div className="flex-1 overflow-auto p-1.5">
+            {steps.length === 0 && <div className="text-center py-8 px-3"><div className="text-3xl mb-2">🧩</div><p className="text-xs text-gray-400">Add columns below or right-click the table header area.</p></div>}
             {steps.map((step, i) => {
               const st = STEP_TYPES.find(t => t.id === step.type);
               const isActive = selectedStep === step.id;
               return (
                 <div key={step.id} onClick={() => { setSelectedStep(step.id); setPanel(null); }}
-                  className={`px-2.5 py-2 rounded-lg cursor-pointer transition border-l-[3px] ${isActive ? 'bg-indigo-50 border-indigo-500' : 'border-transparent hover:bg-gray-50'}`}>
+                  className={['group px-2.5 py-2 rounded-lg cursor-pointer transition-all mb-1 border-l-[3px]', isActive ? 'bg-indigo-50/80 border-indigo-500 shadow-sm' : 'border-transparent hover:bg-gray-50'].join(' ')}>
                   <div className="flex items-center gap-2">
-                    <span className="text-gray-300 text-[10px] cursor-grab">☰</span>
                     <span className="text-sm">{st?.icon}</span>
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-semibold truncate">{step.outputColumn || st?.label}</div>
-                      <div className="text-[10px] text-gray-400">{st?.label}</div>
+                      <div className="text-xs font-semibold truncate text-gray-800">{step.outputColumn || st?.label}</div>
+                      <div className="text-[10px] text-gray-400">{st?.label}{step.condition?.column ? ' · if '+step.condition.column : ''}</div>
                     </div>
+                    <span className="text-[10px] text-gray-300 font-mono">{i+1}</span>
                   </div>
-                  <div className="flex gap-1 mt-1.5">
-                    <button onClick={e => {e.stopPropagation(); moveStep(i,-1);}} className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] text-gray-500 hover:bg-gray-200">↑</button>
-                    <button onClick={e => {e.stopPropagation(); moveStep(i,1);}} className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] text-gray-500 hover:bg-gray-200">↓</button>
+                  <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition">
+                    <button onClick={e => {e.stopPropagation(); moveStep(i,-1);}} className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] text-gray-400 hover:bg-gray-200">↑</button>
+                    <button onClick={e => {e.stopPropagation(); moveStep(i,1);}} className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] text-gray-400 hover:bg-gray-200">↓</button>
+                    <button onClick={e => {e.stopPropagation(); duplicateStep(step);}} className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] text-gray-400 hover:bg-gray-200">⧉</button>
+                    <button onClick={e => {e.stopPropagation(); deleteStep(step.id);}} className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] text-red-400 ml-auto">×</button>
                   </div>
                 </div>
               );
             })}
           </div>
-
-          {/* Add Step */}
-          <div className="border-t border-gray-200 p-2 max-h-[40vh] overflow-auto">
-            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">+ Add Column</div>
+          <div className="border-t border-gray-100 p-2 max-h-[45vh] overflow-auto">
+            {!hasData && (
+              <div className="mb-2">
+                <button onClick={addTemplateColumn} className="flex items-center gap-2 w-full px-2.5 py-2 rounded-lg text-left bg-amber-50 border border-amber-200 hover:bg-amber-100 transition mb-1.5">
+                  <span>📋</span><div><div className="text-xs font-semibold text-amber-700">Add Base Column</div><div className="text-[10px] text-amber-500">Define expected CSV columns</div></div>
+                </button>
+                {templateColumns.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2 px-1">
+                    {templateColumns.map(c => (
+                      <span key={c} className="px-2 py-0.5 bg-amber-50 border border-amber-200 rounded text-[10px] text-amber-700 font-mono flex items-center gap-1">
+                        {c}<button onClick={() => setTemplateColumns(prev => prev.filter(x => x !== c))} className="text-amber-400 hover:text-red-500">×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1 mb-1">+ Add Enrichment</div>
             {['enrichment','logic','action'].map(cat => (
               <div key={cat}>
-                <div className="text-[10px] text-gray-300 uppercase tracking-wide pt-2 pb-1">{cat}</div>
+                <div className="text-[9px] text-gray-300 uppercase tracking-wider pt-2 pb-0.5 px-1">{cat}</div>
                 {STEP_TYPES.filter(s => s.cat === cat).map(st => (
                   <button key={st.id} onClick={() => addStep(st.id)}
-                    className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-left hover:bg-gray-50 transition">
-                    <span className="text-sm">{st.icon}</span>
-                    <div>
-                      <div className="text-xs font-medium">{st.label}</div>
-                      <div className="text-[10px] text-gray-400">{st.desc}</div>
-                    </div>
+                    className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-left hover:bg-indigo-50 transition group">
+                    <span className="text-sm group-hover:scale-110 transition-transform">{st.icon}</span>
+                    <div><div className="text-xs font-medium text-gray-700">{st.label}</div><div className="text-[10px] text-gray-400">{st.desc}</div></div>
                   </button>
                 ))}
               </div>
             ))}
-            {steps.length > 0 && (
-              <button onClick={saveWorkflow} className="flex items-center gap-2 w-full px-2 py-1.5 mt-2 rounded-md bg-indigo-50 border border-indigo-200 hover:bg-indigo-100">
-                <span>💾</span><span className="text-xs font-medium text-indigo-600">Save as Template</span>
+            {hasWorkflow && (
+              <button onClick={saveWorkflow} className="flex items-center gap-2 w-full px-2.5 py-2 mt-2 rounded-lg bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 transition">
+                <span>💾</span><span className="text-xs font-semibold text-indigo-600">Save as Template</span>
               </button>
             )}
           </div>
         </div>
 
-        {/* ─── CENTER: Table ─── */}
+        {/* CENTER TABLE */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {!hasData ? (
+          {!hasData && !hasWorkflow ? (
             <div className="flex-1 flex flex-col items-center justify-center cursor-pointer" onDragOver={e => e.preventDefault()} onDrop={handleDrop} onClick={() => fileRef.current?.click()}>
               <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
               <div className="text-5xl mb-4">📂</div>
               <h2 className="text-xl font-bold mb-2">Drop a CSV or click to upload</h2>
-              <p className="text-gray-400 text-sm mb-6">Import leads, then build your enrichment pipeline.</p>
-              <div className="flex gap-2">
-                {['Upload CSV','Add AI steps','Run enrichment','Export results'].map((t,i) => (
-                  <div key={t} className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-4 py-2.5 text-sm">
-                    <span className="w-5 h-5 bg-indigo-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold">{i+1}</span>{t}
+              <p className="text-gray-400 text-sm mb-6">Or build a workflow template first using the sidebar →</p>
+              <div className="flex gap-2.5">
+                {['Upload CSV','Add AI steps','Run enrichment','Export'].map((t,i) => (
+                  <div key={t} className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm shadow-sm">
+                    <span className="w-6 h-6 bg-indigo-500 text-white rounded-full flex items-center justify-center text-[11px] font-bold">{i+1}</span>{t}
                   </div>
                 ))}
+              </div>
+            </div>
+          ) : !hasData && hasWorkflow ? (
+            <div className="flex-1 flex flex-col">
+              <div className="flex-1 overflow-auto">
+                <table className="min-w-full border-collapse text-xs" style={{width:'max-content',minWidth:'100%'}}>
+                  <thead>{renderTableHeader()}</thead>
+                  <tbody>
+                    {[0,1,2].map(i => (
+                      <tr key={i} className="bg-white border-b border-gray-50">
+                        <td className="px-3 py-3 text-[10px] text-gray-300">{i+1}</td>
+                        {allColumns.map(col => <td key={col} className="px-3 py-3 text-xs text-gray-300 italic">sample data</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="px-4 py-3 bg-white border-t border-gray-200 flex items-center gap-3" onDragOver={e => e.preventDefault()} onDrop={handleDrop}>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-gray-700">Workflow ready — upload a CSV to run it</p>
+                  <p className="text-[11px] text-gray-400">CSV columns will auto-map to your base columns.</p>
+                </div>
+                <button onClick={() => fileRef.current?.click()} className="px-4 py-2 bg-indigo-500 text-white rounded-lg text-xs font-semibold hover:bg-indigo-600 shadow-sm shadow-indigo-200">📂 Upload CSV</button>
+                <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
               </div>
             </div>
           ) : (
             <>
               <div className="flex-1 overflow-auto">
                 <table className="min-w-full border-collapse text-xs" style={{width:'max-content',minWidth:'100%'}}>
-                  <thead>
-                    <tr>
-                      <th className="sticky top-0 z-10 bg-gray-50 px-3 py-2 text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wide border-b-2 border-gray-200 w-10">#</th>
-                      {allColumns.map(col => {
-                        const isEnrich = enrichCols.includes(col);
-                        const st = steps.find(s => s.outputColumn === col);
-                        const stType = st ? STEP_TYPES.find(t => t.id === st.type) : null;
-                        return (
-                          <th key={col} className={`sticky top-0 z-10 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide border-b-2 border-gray-200 whitespace-nowrap min-w-[120px] ${isEnrich ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-50 text-gray-400'}`}>
-                            <div className="flex items-center gap-1">
-                              {stType && <span className="text-xs">{stType.icon}</span>}
-                              {col}
-                            </div>
-                          </th>
-                        );
-                      })}
-                    </tr>
-                  </thead>
+                  <thead>{renderTableHeader()}</thead>
                   <tbody>
                     {rows.map((row, ri) => (
-                      <tr key={row.id || ri} className={`${ri%2?'bg-gray-50/50':'bg-white'} hover:bg-indigo-50/30 transition`}>
-                        <td className="px-3 py-1.5 text-[10px] text-gray-300 border-b border-gray-100">{ri+1}</td>
+                      <tr key={row.id || ri} className={[ri%2?'bg-gray-50/30':'bg-white','hover:bg-indigo-50/20 transition'].join(' ')}>
+                        <td className="px-3 py-1.5 text-center text-[10px] text-gray-300 border-b border-gray-50 font-mono">{ri+1}</td>
                         {allColumns.map(col => {
                           const val = row.data?.[col] || '';
                           const isEditing = editCell?.row === ri && editCell?.col === col;
                           const isErr = val.toString().startsWith('⚠');
-                          const isOk = ['✅ Pass','✅ Pushed','ok','YES'].includes(val);
-                          const isFail = ['❌ Fail','NO','invalid'].includes(val);
+                          const isOk = ['✅ Pass','✅ Pushed','ok','YES','deliverable','valid'].includes(val);
+                          const isFail = ['❌ Fail','NO','invalid','undeliverable'].includes(val);
                           return (
                             <td key={col} onDoubleClick={() => startEdit(ri,col)} title={val}
-                              className={`px-3 py-1.5 border-b border-gray-100 max-w-[300px] ${isErr?'text-red-500':isOk?'text-green-600':isFail?'text-red-500':''}`}>
+                              className={['px-3 py-1.5 border-b border-gray-50 max-w-[300px] text-xs', isErr?'text-red-500':isOk?'text-emerald-600 font-medium':isFail?'text-red-500 font-medium':''].join(' ')}>
                               {isEditing ? (
                                 <input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)}
                                   onBlur={commitEdit} onKeyDown={e => {if(e.key==='Enter')commitEdit();if(e.key==='Escape')setEditCell(null);}}
-                                  className="w-full px-1.5 py-0.5 border-2 border-indigo-500 rounded text-xs font-mono outline-none" />
-                              ) : (
-                                <div className="truncate">{val}</div>
-                              )}
+                                  className="w-full px-2 py-1 border-2 border-indigo-500 rounded-md text-xs font-mono outline-none bg-white shadow-sm" />
+                              ) : <div className="truncate">{val}</div>}
                             </td>
                           );
                         })}
@@ -664,51 +875,48 @@ export default function Dashboard() {
                 </table>
               </div>
               <div className="px-4 py-2 text-[11px] text-gray-400 border-t border-gray-200 bg-white font-mono flex items-center gap-3">
-                {rows.length} rows · {allColumns.length} columns · {steps.length} steps
-                <button onClick={() => fileRef.current?.click()} className="text-indigo-500 hover:underline">↑ Import new</button>
+                {rows.length} rows · {allColumns.length} cols · {steps.length} steps
+                <span className="text-gray-300">·</span>
+                <span className="text-[10px] text-gray-300">Right-click header → add column · Drag headers to reorder · Click enrichment cols to edit</span>
+                <button onClick={() => fileRef.current?.click()} className="ml-auto text-indigo-500 hover:text-indigo-700 font-sans font-medium">↑ Import</button>
                 <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => handleFile(e.target.files?.[0])} />
               </div>
             </>
           )}
         </div>
 
-        {/* ─── RIGHT: Config Panel ─── */}
+        {/* RIGHT PANEL */}
         {(selStep || panel) && (
-          <div className="w-[340px] min-w-[340px] bg-white border-l border-gray-200 flex flex-col overflow-hidden animate-in">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-              <span className="font-bold text-sm">
-                {panel==='keys'?'🔑 API Keys':panel==='integrations'?'🔌 Integration Setup':panel==='templates'?'📄 Templates':panel==='prompts'?'📚 Prompt Library':'⚙️ Step Config'}
+          <div className="w-[360px] min-w-[360px] bg-white border-l border-gray-200 flex flex-col overflow-hidden animate-in">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+              <span className="font-bold text-sm text-gray-700">
+                {panel==='keys'?'🔑 API Keys':panel==='integrations'?'🔌 Integration Setup':panel==='templates'?'📄 Templates':panel==='prompts'?'📚 Prompt Library':'⚙️ Configure Step'}
               </span>
-              <button onClick={() => {setSelectedStep(null);setPanel(null);}} className="text-gray-400 hover:text-gray-600 text-lg">×</button>
+              <button onClick={() => {setSelectedStep(null);setPanel(null);}} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-200 text-gray-400">×</button>
             </div>
             <div className="flex-1 overflow-auto">
-
-              {/* API Keys */}
               {panel === 'keys' && (
                 <div className="p-4 space-y-3">
                   {Object.entries(INTEG_SETUP).map(([id,integ]) => (
                     <div key={id}>
                       <label className="text-xs font-semibold text-gray-500 flex items-center gap-1.5">
-                        {integ.icon} {integ.name}
-                        {keys[id] && <span className="text-[10px] text-green-500">● Connected</span>}
+                        <span>{integ.icon}</span> {integ.name}
+                        {keys[id] ? <span className="text-[9px] font-bold text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded-full ml-auto">CONNECTED</span> : <span className="text-[9px] text-gray-300 ml-auto">not set</span>}
                       </label>
-                      <input type="password" value={keys[id]||''} onChange={e => saveKey(id, e.target.value)}
-                        placeholder="Paste API key..." className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs" />
+                      <input type="password" value={keys[id]||''} onChange={e => saveKey(id, e.target.value)} placeholder="Paste API key..."
+                        className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs outline-none" />
                     </div>
                   ))}
-                  <div className="text-[11px] text-gray-400 p-3 bg-gray-50 rounded-lg">🔒 Keys stored in Supabase. Only sent to each provider's API.</div>
+                  <div className="text-[11px] text-gray-400 p-3 bg-gray-50 rounded-lg mt-2">🔒 Keys stored in Supabase. Only sent to each provider directly.</div>
                 </div>
               )}
-
-              {/* Integration Setup Guides */}
               {panel === 'integrations' && (
-                <div className="p-4 space-y-2">
+                <div className="p-4 space-y-1.5">
                   {Object.entries(INTEG_SETUP).map(([id,integ]) => (
                     <details key={id} className="bg-gray-50 rounded-lg border border-gray-100">
-                      <summary className="px-3 py-2.5 cursor-pointer flex items-center gap-2 text-sm">
-                        <span>{integ.icon}</span>
-                        <span className="font-semibold text-xs">{integ.name}</span>
-                        {keys[id] ? <span className="text-[10px] text-green-500 ml-auto">✓ Ready</span> : <span className="text-[10px] text-red-400 ml-auto">Setup needed</span>}
+                      <summary className="px-3 py-2.5 cursor-pointer flex items-center gap-2">
+                        <span>{integ.icon}</span><span className="font-semibold text-xs flex-1">{integ.name}</span>
+                        {keys[id] ? <span className="text-[9px] font-bold text-emerald-500">✓ Ready</span> : <span className="text-[9px] text-red-400">Setup needed</span>}
                       </summary>
                       <pre className="px-3 pb-3 text-[11px] text-gray-500 whitespace-pre-wrap leading-relaxed">{integ.setup}</pre>
                     </details>
@@ -717,20 +925,17 @@ export default function Dashboard() {
                     <p className="text-xs font-semibold text-indigo-700 mb-1">📨 Webhook for Make.com</p>
                     <code className="text-[10px] text-indigo-600 font-mono break-all">POST {typeof window !== 'undefined' ? window.location.origin : ''}/api/webhook</code>
                     <p className="text-[10px] text-indigo-500 mt-1">Header: x-webhook-secret = your_secret</p>
-                    <p className="text-[10px] text-indigo-500">Body: {"{ workflow_id, list_id, test_limit }"}</p>
                   </div>
                 </div>
               )}
-
-              {/* Templates */}
               {panel === 'templates' && (
                 <div className="p-4 space-y-2">
-                  {workflows.length === 0 && <p className="text-sm text-gray-400 text-center py-8">No saved templates yet</p>}
+                  {workflows.length === 0 && <p className="text-sm text-gray-400 text-center py-8">No saved templates yet.</p>}
                   {workflows.map(wf => (
                     <div key={wf.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
                       <div className="font-semibold text-xs">{wf.name}</div>
                       <div className="text-[10px] text-gray-400">{(wf.steps||[]).length} steps · {new Date(wf.created_at).toLocaleDateString()}</div>
-                      <div className="text-[10px] text-gray-400 font-mono mt-1">ID: {wf.id}</div>
+                      <div className="text-[10px] text-gray-300 font-mono mt-0.5 truncate">ID: {wf.id}</div>
                       <div className="flex gap-2 mt-2">
                         <button onClick={() => loadWorkflow(wf)} className="text-[11px] text-indigo-600 font-semibold hover:underline">Load</button>
                         <button onClick={async () => { await supabase.from('workflows').delete().eq('id',wf.id); setWorkflows(prev => prev.filter(w => w.id !== wf.id)); }} className="text-[11px] text-red-400 hover:underline">Delete</button>
@@ -739,28 +944,37 @@ export default function Dashboard() {
                   ))}
                 </div>
               )}
-
-              {/* Prompt Library */}
               {panel === 'prompts' && (
                 <div className="p-4 space-y-2">
+                  <p className="text-[11px] text-gray-400 mb-2">Click any prompt to add it as a new AI step instantly.</p>
                   {PROMPT_LIBRARY.map(p => (
-                    <div key={p.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                      <div className="font-semibold text-xs">{p.name}</div>
+                    <div key={p.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 hover:border-indigo-200 cursor-pointer group"
+                      onClick={() => {
+                        const s = { id: uid(), type: 'ai_enrich', outputColumn: p.name.toLowerCase().replace(/\s+/g,'_'),
+                          prompt: p.prompt, provider: p.provider, model: p.model, condition: null,
+                          emailColumn: '', fnCol: '', lnCol: '', domainCol: '', waterfallSources: [],
+                          formula: '', campaignId: '', emailProvider: 'findymail', verifyProvider: 'millionverifier' };
+                        setSteps(prev => [...prev, s]); setSelectedStep(s.id); setPanel(null);
+                      }}>
+                      <div className="flex items-center justify-between">
+                        <div className="font-semibold text-xs">{p.name}</div>
+                        <span className="text-[9px] text-indigo-500 opacity-0 group-hover:opacity-100 font-semibold">+ Add as step</span>
+                      </div>
                       <div className="text-[10px] text-indigo-500 mt-0.5">Rec: {p.model} — {p.reason}</div>
-                      <pre className="text-[10px] text-gray-400 mt-1 whitespace-pre-wrap max-h-16 overflow-hidden leading-relaxed font-mono">{p.prompt}</pre>
+                      <pre className="text-[10px] text-gray-400 mt-1.5 whitespace-pre-wrap max-h-20 overflow-hidden leading-relaxed font-mono bg-white/50 p-2 rounded">{p.prompt}</pre>
                     </div>
                   ))}
                 </div>
               )}
-
-              {/* Step Config */}
               {selStep && !panel && (
-                <StepConfig step={selStep} columns={allColumns} keys={keys} onUpdate={updateStep} onDelete={() => deleteStep(selStep.id)} />
+                <StepConfig step={selStep} columns={allColumns} keys={keys} onUpdate={updateStep} onDelete={() => deleteStep(selStep.id)} onDuplicate={() => duplicateStep(selStep)} rows={rows} />
               )}
             </div>
           </div>
         )}
       </div>
+
+      {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} onSelect={addStep} onClose={() => setContextMenu(null)} />}
     </div>
   );
 }
