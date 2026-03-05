@@ -593,6 +593,8 @@ export default function Dashboard() {
   const [testMode, setTestMode] = useState(0);
   const [editCell, setEditCell] = useState(null);
   const [editValue, setEditValue] = useState("");
+  const [runningStep, setRunningStep] = useState(null);
+  const [runProgress, setRunProgress] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [columnOrder, setColumnOrder] = useState(null);
@@ -610,6 +612,7 @@ export default function Dashboard() {
   const fileRef = useRef();
   const mergeRef = useRef();
   const pollRef = useRef();
+  const abortRef = useRef(false);
 
   const enrichCols = steps.map(s => s.outputColumn).filter(Boolean);
   const baseColumns = origColumns.length > 0 ? origColumns : templateColumns;
