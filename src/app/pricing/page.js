@@ -1,63 +1,98 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { createBrowserClient } from '@/lib/supabase';
+
+import { useAuth } from '@/lib/auth';
 
 const PLANS = [
-  { id: 'free', name: 'Free', price: 0, features: ['5 enrichment runs/month', '100 rows per list', 'Bring your own API keys', 'All step types', 'CSV export'], limit: '5 runs' },
-  { id: 'starter', name: 'Starter', price: 29, features: ['500 enrichment runs/month', '5,000 rows per list', 'All integrations', 'Workflow templates', 'Webhook API', 'Priority support'], limit: '500 runs', popular: true },
-  { id: 'pro', name: 'Pro', price: 79, features: ['Unlimited enrichment runs', 'Unlimited rows', 'All integrations', 'Waterfall enrichment', 'Background processing', 'Webhook + API', 'CSV merge'], limit: 'Unlimited' },
-  { id: 'enterprise', name: 'Enterprise', price: 199, features: ['Everything in Pro', 'Team accounts (coming)', 'Dedicated support', 'Custom integrations', 'White-label option'], limit: 'Unlimited+' },
+  { name: 'Free', price: '$0', period: '', badge: null, runs: '100 runs/mo', highlight: false, priceId: null,
+    features: ['100 enrichment runs/month','500 rows per list','All AI providers (BYOK)','All step types','CSV import & export','Workflow builder'],
+    cta: 'Get Started Free' },
+  { name: 'Starter', price: '$29', period: '/mo', badge: 'MOST POPULAR', runs: '2,000 runs/mo', highlight: true, priceId: 'starter',
+    features: ['2,000 enrichment runs/month','10,000 rows per list','All integrations','Workflow templates','Webhook + Make.com','Priority support'],
+    cta: 'Start 7-Day Free Trial' },
+  { name: 'Pro', price: '$79', period: '/mo', badge: null, runs: 'Unlimited', highlight: false, priceId: 'pro',
+    features: ['Unlimited enrichment runs','Unlimited rows','Waterfall email finding','Background processing','Webhook + API access','CSV merge & advanced filters'],
+    cta: 'Start Free Trial' },
+  { name: 'Enterprise', price: '$199', period: '/mo', badge: null, runs: 'Unlimited+', highlight: false, priceId: 'enterprise',
+    features: ['Everything in Pro','Team accounts (coming)','Dedicated support','Custom integrations','White-label option','SLA guarantee'],
+    cta: 'Contact Sales' },
 ];
 
 export default function PricingPage() {
-  const [supabase] = useState(() => createBrowserClient());
-  const [profile, setProfile] = useState(null);
-
-  useEffect(() => {
-    (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-        setProfile(data);
-      }
-    })();
-  }, [supabase]);
-
+  const { supabase, user, profile } = useAuth();
+  const currentPlan = profile?.plan || 'free';
+  const handleSubscribe = async (priceId) => {
+    if (!priceId) { window.location.href = '/'; return; }
+    if (!user) { window.location.href = '/auth'; return; }
+    try {
+      const res = await fetch('/api/stripe', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'checkout', plan: priceId, userId: user.id, email: user.email }) });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } catch (e) { console.error('Checkout error:', e); }
+  };
   return (
-    <div style={{minHeight:'100vh',background:'#f5f6f8',padding:'64px 16px',fontFamily:'system-ui'}}>
-      <div style={{maxWidth:960,margin:'0 auto'}}>
-        <div style={{textAlign:'center',marginBottom:48}}>
-          <a href="/" style={{textDecoration:'none',color:'inherit',display:'inline-flex',alignItems:'center',gap:8,marginBottom:16}}>
-            <div style={{width:40,height:40,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:18,fontFamily:'monospace'}}>J</div>
-            <span style={{fontWeight:800,letterSpacing:2,fontFamily:'monospace',fontSize:18}}>JAKLAY</span>
-          </a>
-          <h1 style={{fontSize:28,fontWeight:700,margin:'0 0 8px'}}>Simple, transparent pricing</h1>
-          <p style={{color:'#888',fontSize:15}}>Save $4,500+/year vs Clay. Pay only for what you use.</p>
+    <div style={{ minHeight: '100vh', background: '#f8f9fb', fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+      <div style={{ textAlign: 'center', padding: '60px 20px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 16 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 16 }}>J</div>
+          <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: 2, color: '#1e1f2e' }}>JAKLAY</span>
         </div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16}}>
-          {PLANS.map(plan => (
-            <div key={plan.id} style={{background:'#fff',borderRadius:16,border:plan.popular?'2px solid #6366f1':'2px solid #e5e7eb',padding:24,position:'relative',boxShadow:plan.popular?'0 4px 20px rgba(99,102,241,0.15)':'none'}}>
-              {plan.popular && <div style={{position:'absolute',top:-12,left:'50%',transform:'translateX(-50%)',background:'#6366f1',color:'#fff',padding:'2px 12px',borderRadius:12,fontSize:11,fontWeight:700}}>POPULAR</div>}
-              <div style={{fontSize:12,fontWeight:700,color:'#888',textTransform:'uppercase',letterSpacing:1}}>{plan.name}</div>
-              <div style={{margin:'8px 0 16px'}}><span style={{fontSize:36,fontWeight:700}}>${plan.price}</span>{plan.price > 0 && <span style={{color:'#888',fontSize:14}}>/mo</span>}</div>
-              <div style={{fontSize:12,color:'#6366f1',fontWeight:600,marginBottom:16}}>{plan.limit}</div>
-              <ul style={{listStyle:'none',padding:0,margin:'0 0 24px'}}>
-                {plan.features.map(f => <li key={f} style={{fontSize:13,color:'#555',padding:'4px 0',display:'flex',gap:8}}><span style={{color:'#22c55e'}}>✓</span>{f}</li>)}
-              </ul>
-              <button style={{width:'100%',padding:'10px',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',background:profile?.plan===plan.id?'#f0f0f0':plan.popular?'#6366f1':'#f0f0f0',color:profile?.plan===plan.id?'#999':plan.popular?'#fff':'#333'}}>
-                {profile?.plan===plan.id?'Current Plan':plan.price===0?'Get Started Free':'Subscribe'}
-              </button>
+        <h1 style={{ fontSize: 40, fontWeight: 800, color: '#1e1f2e', margin: '0 0 8px', lineHeight: 1.1 }}>Simple, transparent pricing</h1>
+        <p style={{ fontSize: 16, color: '#6b7280', margin: '0 auto', maxWidth: 500 }}>Pay only for what you use. Cancel anytime. All plans include every AI provider and step type.</p>
+      </div>
+      <div style={{ textAlign: 'center', marginBottom: 40 }}>
+        <span style={{ display: 'inline-block', background: '#fef3c7', color: '#92400e', fontSize: 13, fontWeight: 600, padding: '6px 16px', borderRadius: 20 }}>
+          💰 Save $1,400+/year vs Clay — bring your own API keys, pay wholesale
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, maxWidth: 1100, margin: '0 auto', padding: '0 20px 60px' }}>
+        {PLANS.map(plan => (
+          <div key={plan.name} style={{ background: '#fff', borderRadius: 16, padding: '32px 24px 28px',
+            border: plan.highlight ? '2px solid #6366f1' : '1px solid #e5e7eb', position: 'relative',
+            display: 'flex', flexDirection: 'column',
+            boxShadow: plan.highlight ? '0 8px 30px rgba(99,102,241,0.12)' : '0 1px 3px rgba(0,0,0,0.04)',
+            transform: plan.highlight ? 'scale(1.03)' : 'none' }}>
+            {plan.badge && (
+              <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)',
+                background: '#6366f1', color: '#fff', fontSize: 11, fontWeight: 700, padding: '4px 14px', borderRadius: 20, letterSpacing: 1 }}>
+                {plan.badge}
+              </div>
+            )}
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#6b7280', letterSpacing: 1, textTransform: 'uppercase' }}>{plan.name}</div>
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'baseline', gap: 2 }}>
+              <span style={{ fontSize: 44, fontWeight: 800, color: '#1e1f2e', lineHeight: 1 }}>{plan.price}</span>
+              {plan.period && <span style={{ fontSize: 16, color: '#9ca3af' }}>{plan.period}</span>}
             </div>
-          ))}
-        </div>
-        <div style={{textAlign:'center',marginTop:48}}>
-          <div style={{display:'inline-flex',gap:24,fontSize:14,color:'#888'}}>
-            <span>Clay Starter: <span style={{textDecoration:'line-through',color:'#ef4444'}}>$149/mo</span></span>
-            <span>Clay Pro: <span style={{textDecoration:'line-through',color:'#ef4444'}}>$349/mo</span></span>
+            <div style={{ marginTop: 8, fontSize: 14, fontWeight: 600, color: plan.highlight ? '#6366f1' : '#22c55e' }}>{plan.runs}</div>
+            <div style={{ marginTop: 20, flex: 1 }}>
+              {plan.features.map((f, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 10 }}>
+                  <span style={{ color: '#22c55e', fontSize: 16, lineHeight: '20px', flexShrink: 0 }}>✓</span>
+                  <span style={{ fontSize: 14, color: '#374151', lineHeight: '20px' }}>{f}</span>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => handleSubscribe(plan.priceId)}
+              disabled={currentPlan === plan.name.toLowerCase()}
+              style={{ marginTop: 20, width: '100%', padding: '12px 0', borderRadius: 10, fontSize: 14, fontWeight: 600,
+                cursor: currentPlan === plan.name.toLowerCase() ? 'default' : 'pointer', border: 'none',
+                opacity: currentPlan === plan.name.toLowerCase() ? 0.5 : 1, transition: 'all 0.15s',
+                background: plan.highlight ? '#6366f1' : plan.priceId === 'pro' ? '#1e1f2e' : '#fff',
+                color: plan.highlight || plan.priceId === 'pro' ? '#fff' : '#374151',
+                boxShadow: plan.highlight ? '0 4px 14px rgba(99,102,241,0.3)' : 'none',
+                ...((!plan.highlight && plan.priceId !== 'pro') ? { border: '2px solid #d1d5db' } : {}) }}>
+              {currentPlan === plan.name.toLowerCase() ? 'Current Plan' : plan.cta}
+            </button>
           </div>
+        ))}
+      </div>
+      <div style={{ textAlign: 'center', paddingBottom: 60 }}>
+        <div style={{ display: 'inline-flex', gap: 32, alignItems: 'center', fontSize: 14, color: '#6b7280' }}>
+          <span>Clay Starter: <strong style={{ color: '#ef4444', textDecoration: 'line-through' }}>$149/mo</strong></span>
+          <span>Clay Pro: <strong style={{ color: '#ef4444', textDecoration: 'line-through' }}>$349/mo</strong></span>
+          <span style={{ color: '#22c55e', fontWeight: 600 }}>Jaklay Pro: $79/mo ✨</span>
         </div>
       </div>
     </div>
   );
 }
-

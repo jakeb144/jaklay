@@ -295,31 +295,33 @@ export default function Dashboard() {
       if (extraCols.length > 0) oc = [...oc, ...extraCols];
       setOrigColumns(oc);
     }
-    // auto-recover orphaned enrichment columns
+    // auto-recover orphaned enrichment columns with strict pattern matching
     const stepColNames = new Set(loadedSteps.map(s => s.outputColumn));
-    const STEP_PATTERNS = { ai_enrich: 'ai_enrich', web_research: 'web_research', find_email: 'api_find_email', waterfall: 'waterfall', verify: 'api_verify', formula: 'formula', condition_gate: 'condition_gate', api_push: 'api_push', scrape: 'scrape' };
+    const STEP_PREFIXES = [
+      { prefix: 'ai_enrich_', type: 'ai_enrich', provider: 'openai', model: 'gpt-4o' },
+      { prefix: 'web_research_', type: 'web_research', provider: 'perplexity', model: 'sonar' },
+      { prefix: 'find_email_', type: 'api_find_email', provider: 'findymail', model: '' },
+      { prefix: 'waterfall_find_', type: 'waterfall', provider: '', model: '' },
+      { prefix: 'verify_email_', type: 'api_verify', provider: 'millionverifier', model: '' },
+      { prefix: 'formula_', type: 'formula', provider: '', model: '' },
+      { prefix: 'condition_gate_', type: 'condition_gate', provider: '', model: '' },
+      { prefix: 'push_to_instantly_', type: 'api_push', provider: '', model: '' },
+      { prefix: 'scrape_', type: 'scrape', provider: 'google_search', model: '' },
+    ];
     const orphanSteps = [];
     oc.forEach(col => {
       if (stepColNames.has(col)) return;
-      for (const [pattern, type] of Object.entries(STEP_PATTERNS)) {
-        if (col.startsWith(pattern)) {
+      for (const sp of STEP_PREFIXES) {
+        if (col.startsWith(sp.prefix) && col.length > sp.prefix.length) {
           orphanSteps.push({
-            id: 'step_recovered_' + col,
-            type,
-            outputColumn: col,
-            provider: type === 'ai_enrich' ? 'openai' : type === 'web_research' ? 'perplexity' : '',
-            model: type === 'ai_enrich' ? 'gpt-4o' : type === 'web_research' ? 'sonar' : '',
-            prompt: '',
-            condition: null,
-            rowRange: '',
+            id: 'step_recovered_' + col, type: sp.type, outputColumn: col,
+            provider: sp.provider, model: sp.model, prompt: '', condition: null, rowRange: '',
           });
           break;
         }
       }
     });
-    if (orphanSteps.length > 0) {
-      loadedSteps = [...loadedSteps, ...orphanSteps];
-    }
+    if (orphanSteps.length > 0) loadedSteps = [...loadedSteps, ...orphanSteps];
     setSteps(loadedSteps);
     // build column order: check saved order first, then build default
     try {
@@ -424,6 +426,7 @@ export default function Dashboard() {
       }
 
       setColumnTypes(types);
+      try { localStorage.removeItem('jaklay_colorder_' + listData.id); } catch (e) {}
       const ls = await loadLists();
       await switchList(listData.id);
       notify(`Imported ${parsed.rows.length} rows`, 'success');
@@ -1362,8 +1365,8 @@ export default function Dashboard() {
         <span className={`text-[10px] px-2 py-0.5 rounded-full text-white font-medium ${PLAN_COLORS[plan] || PLAN_COLORS.free}`}>
           {plan.toUpperCase()}
         </span>
-        {plan === 'free' && profile?.enrichment_runs_limit && (
-          <span className="text-[10px] text-zinc-500">{profile.enrichment_runs_used || 0}/{profile.enrichment_runs_limit}</span>
+        {profile?.enrichment_runs_limit && profile.enrichment_runs_limit > 0 && (
+          <span className="text-[10px] text-zinc-500">{profile.enrichment_runs_used || 0}/{profile.enrichment_runs_limit} runs</span>
         )}
         {!isPaid && <a href="/pricing" className="text-[10px] text-indigo-400 hover:underline">Upgrade</a>}
         {isAdmin && <a href="/admin" className="text-[10px] text-red-400 hover:underline">Admin</a>}
