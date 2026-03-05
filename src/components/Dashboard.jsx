@@ -300,11 +300,12 @@ export default function Dashboard() {
       const savedOrder = localStorage.getItem(`jaklay_colorder_${listId}`);
       if (savedOrder) {
         const parsed = JSON.parse(savedOrder);
-        // merge: keep saved order, append any new columns not in saved
         const allCols = new Set(oc);
         loadedSteps.forEach(s => { if (s.outputColumn) allCols.add(s.outputColumn); });
         const missing = [...allCols].filter(c => !parsed.includes(c));
-        setColumnOrder([...parsed.filter(c => allCols.has(c)), ...missing]);
+        // deduplicate
+        const order = [...parsed.filter(c => allCols.has(c)), ...missing];
+        setColumnOrder([...new Set(order)]);
       } else {
         buildColumnOrder(oc, loadedSteps);
       }
@@ -317,7 +318,7 @@ export default function Dashboard() {
     const enrichCols = (currentSteps || []).map(s => s.outputColumn).filter(Boolean);
     const corePresent = CORE_COL_ORDER.filter(c => oc.includes(c));
     const remaining = oc.filter(c => !CORE_COL_ORDER.includes(c) && !enrichCols.includes(c));
-    setColumnOrder([...corePresent, ...enrichCols, ...remaining]);
+    setColumnOrder([...new Set([...corePresent, ...enrichCols, ...remaining])]);
   }, []);
 
   // ── Initial load ──
@@ -532,31 +533,46 @@ export default function Dashboard() {
       api_push: { campaignId: '', emailColumn: 'email' },
       scrape: { provider: 'google_search', query: '' },
     };
-    const stepNum = steps.filter(s => s.type === type).length + 1;
     const baseName = STEP_CATEGORIES.flatMap(c => c.items).find(i => i.type === type)?.name || type;
-    const newStep = {
-      id: `step_${Date.now()}`,
-      type,
-      outputColumn: `${baseName.toLowerCase().replace(/\s+/g, '_')}_${stepNum}`,
-      ...defaults[type],
-      condition: null,
-      rowRange: '',
-    };
-    setSteps(prev => [...prev, newStep]);
-    if (insertAfterCol) {
+    const baseSlug = baseName.toLowerCase().replace(/\s+/g, '_');
+    let newStep = null;
+    setSteps(prev => {
+      // generate unique name based on actual current steps
+      const existing = prev.filter(s => s.outputColumn && s.outputColumn.startsWith(baseSlug));
+      let num = existing.length + 1;
+      let colName = `${baseSlug}_${num}`;
+      // ensure truly unique
+      const allNames = new Set(prev.map(s => s.outputColumn));
+      while (allNames.has(colName)) { num++; colName = `${baseSlug}_${num}`; }
+      newStep = {
+        id: `step_${Date.now()}`,
+        type,
+        outputColumn: colName,
+        ...defaults[type],
+        condition: null,
+        rowRange: '',
+      };
+      return [...prev, newStep];
+    });
+    // add to column order (use setTimeout to read after setSteps batch)
+    setTimeout(() => {
+      if (!newStep) return;
       setColumnOrder(prev => {
-        const idx = prev.indexOf(insertAfterCol);
-        if (idx >= 0) {
-          const copy = [...prev];
-          copy.splice(idx + 1, 0, newStep.outputColumn);
-          return copy;
+        if (prev.includes(newStep.outputColumn)) return prev;
+        if (insertAfterCol) {
+          const idx = prev.indexOf(insertAfterCol);
+          if (idx >= 0) {
+            const copy = [...prev];
+            copy.splice(idx + 1, 0, newStep.outputColumn);
+            return copy;
+          }
         }
         return [...prev, newStep.outputColumn];
       });
-    }
+      openStepConfig(newStep);
+    }, 0);
     setShowAddStep(false);
-    openStepConfig(newStep);
-  }, [steps]);
+  }, [openStepConfig]);
 
   const updateStep = useCallback((stepId, updates) => {
     setSteps(prev => prev.map(s => s.id === stepId ? { ...s, ...updates } : s));
@@ -1146,15 +1162,19 @@ export default function Dashboard() {
     return () => window.removeEventListener('click', handler);
   }, []);
 
-  /* ─── COLUMN ORDER REBUILD ON STEP CHANGES ───────────────────────────── */
+  /* ─── COLUMN ORDER SYNC ON STEP CHANGES ──────────────────────────────── */
 
   useEffect(() => {
-    if (!origColumns.length) return;
-    const enrichCols = steps.map(s => s.outputColumn).filter(Boolean);
+    if (!origColumns.length && !steps.length) return;
+    const enrichCols = new Set(steps.map(s => s.outputColumn).filter(Boolean));
     setColumnOrder(prev => {
-      const missing = enrichCols.filter(c => !prev.includes(c));
-      if (missing.length === 0) return prev;
-      return [...prev, ...missing];
+      // add any enrichment columns not yet in the order
+      const missing = [...enrichCols].filter(c => !prev.includes(c));
+      // remove enrichment columns whose step was deleted (but keep origColumns & data cols)
+      const validOrig = new Set(origColumns);
+      const cleaned = prev.filter(c => validOrig.has(c) || enrichCols.has(c));
+      if (missing.length === 0 && cleaned.length === prev.length) return prev;
+      return [...cleaned, ...missing];
     });
   }, [steps, origColumns]);
 
