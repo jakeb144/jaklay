@@ -18,7 +18,7 @@ export default function AuthPage() {
       if (mode === 'login') {
         const { error: err } = await supabase.auth.signInWithPassword({ email, password });
         if (err) setError(err.message);
-        else window.location.href = '/';
+        else window.location.reload();
       } else {
         const { error: err } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } });
         if (err) setError(err.message);
