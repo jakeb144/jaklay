@@ -519,6 +519,11 @@ export default function Dashboard() {
     } catch (e) { console.error('merge', e); notify('Merge failed', 'error'); }
   }, [mergeData, mergeMatchCol, mergeCols, rows, origColumns, supabase, activeListId, steps, buildColumnOrder, notify]);
 
+  const openStepConfig = useCallback((step) => {
+    setRightPanel('step');
+    setRightPanelData(step);
+  }, []);
+
   /* ─── STEP MANAGEMENT ────────────────────────────────────────────────── */
 
   const addStep = useCallback((type, insertAfterCol = null) => {
@@ -586,11 +591,6 @@ export default function Dashboard() {
   const duplicateStep = useCallback((step) => {
     const newStep = { ...step, id: `step_${Date.now()}`, outputColumn: step.outputColumn + '_copy' };
     setSteps(prev => [...prev, newStep]);
-  }, []);
-
-  const openStepConfig = useCallback((step) => {
-    setRightPanel('step');
-    setRightPanelData(step);
   }, []);
 
   // drag reorder steps

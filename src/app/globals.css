@@ -40,3 +40,10 @@ input, select, textarea {
   color: inherit;
   background-color: inherit;
 }
+
+input, select, textarea {
+  color: inherit;
+}
+input::placeholder, textarea::placeholder {
+  color: #a1a1aa;
+}
