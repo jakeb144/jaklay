@@ -591,8 +591,6 @@ export default function Dashboard() {
   const [selectedStep, setSelectedStep] = useState(null);
   const [panel, setPanel] = useState(null);
   const [testMode, setTestMode] = useState(0);
-  const [activeJob, setActiveJob] = useState(null);
-  const [jobProgress, setJobProgress] = useState(null);
   const [editCell, setEditCell] = useState(null);
   const [editValue, setEditValue] = useState("");
   const [loaded, setLoaded] = useState(false);
