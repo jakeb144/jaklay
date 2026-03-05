@@ -519,12 +519,12 @@ export default function Dashboard() {
     } catch (e) { console.error('merge', e); notify('Merge failed', 'error'); }
   }, [mergeData, mergeMatchCol, mergeCols, rows, origColumns, supabase, activeListId, steps, buildColumnOrder, notify]);
 
+  /* ─── STEP MANAGEMENT ────────────────────────────────────────────────── */
+
   const openStepConfig = useCallback((step) => {
     setRightPanel('step');
     setRightPanelData(step);
   }, []);
-
-  /* ─── STEP MANAGEMENT ────────────────────────────────────────────────── */
 
   const addStep = useCallback((type, insertAfterCol = null) => {
     const defaults = {
@@ -540,15 +540,26 @@ export default function Dashboard() {
     };
     const baseName = STEP_CATEGORIES.flatMap(c => c.items).find(i => i.type === type)?.name || type;
     const baseSlug = baseName.toLowerCase().replace(/\s+/g, '_');
-    const colName = `${baseSlug}_${Date.now().toString(36).slice(-4)}`;
-    const newStep = {
-      id: `step_${Date.now()}`,
-      type,
-      outputColumn: colName,
-      ...defaults[type],
-      condition: null,
-      rowRange: '',
-    };
+    let colName = `${baseSlug}_1`;
+    let newStep = null;
+    setSteps(prev => {
+      const taken = new Set(prev.map(s => s.outputColumn));
+      let num = 1;
+      while (taken.has(`${baseSlug}_${num}`)) num++;
+      colName = `${baseSlug}_${num}`;
+      const step = {
+        id: `step_${Date.now()}`,
+        type,
+        outputColumn: colName,
+        ...defaults[type],
+        condition: null,
+        rowRange: '',
+      };
+      // store for openStepConfig below
+      newStep = step;
+      return [...prev, step];
+    });
+    // insert column in correct position
     setColumnOrder(prev => {
       if (prev.includes(colName)) return prev;
       if (insertAfterCol) {
@@ -561,7 +572,6 @@ export default function Dashboard() {
       }
       return [...prev, colName];
     });
-    setSteps(prev => [...prev, newStep]);
     setShowAddStep(false);
     openStepConfig(newStep);
   }, [openStepConfig]);
@@ -1037,11 +1047,16 @@ export default function Dashboard() {
     notify('Stopped', 'info');
   }, [notify]);
 
-  const runForCell = useCallback(async (rowIndex, colName) => {
+  const runForCell = useCallback(async (filteredRowIndex, colName) => {
     const step = steps.find(s => s.outputColumn === colName);
     if (!step) return;
-    await runSingleStep(step, [rowIndex]);
-  }, [steps, runSingleStep]);
+    // translate filteredRows index to actual rows index
+    const targetRow = filteredRows[filteredRowIndex];
+    if (!targetRow) return;
+    const actualIndex = rows.findIndex(r => r.id === targetRow.id);
+    if (actualIndex < 0) return;
+    await runSingleStep(step, [actualIndex]);
+  }, [steps, runSingleStep, filteredRows, rows]);
 
   /* ─── SORTING & FILTERING ────────────────────────────────────────────── */
 
@@ -1125,10 +1140,14 @@ export default function Dashboard() {
 
   /* ─── INLINE EDIT ────────────────────────────────────────────────────── */
 
-  const startEdit = useCallback((rowIndex, col) => {
-    setEditingCell({ rowIndex, col });
-    setEditValue(rows[rowIndex]?.data?.[col] || '');
-  }, [rows]);
+  const startEdit = useCallback((filteredRowIndex, col) => {
+    const targetRow = filteredRows[filteredRowIndex];
+    if (!targetRow) return;
+    const actualIndex = rows.findIndex(r => r.id === targetRow.id);
+    if (actualIndex < 0) return;
+    setEditingCell({ rowIndex: actualIndex, filteredIndex: filteredRowIndex, col });
+    setEditValue(rows[actualIndex]?.data?.[col] || '');
+  }, [rows, filteredRows]);
 
   const commitEdit = useCallback(async () => {
     if (!editingCell) return;
@@ -1153,15 +1172,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!origColumns.length && !steps.length) return;
-    const enrichCols = new Set(steps.map(s => s.outputColumn).filter(Boolean));
+    const enrichCols = steps.map(s => s.outputColumn).filter(Boolean);
     setColumnOrder(prev => {
-      // add any enrichment columns not yet in the order
-      const missing = [...enrichCols].filter(c => !prev.includes(c));
-      // remove enrichment columns whose step was deleted (but keep origColumns & data cols)
-      const validOrig = new Set(origColumns);
-      const cleaned = prev.filter(c => validOrig.has(c) || enrichCols.has(c));
-      if (missing.length === 0 && cleaned.length === prev.length) return prev;
-      return [...cleaned, ...missing];
+      // only add enrichment columns not yet in the order — never remove
+      const missing = enrichCols.filter(c => !prev.includes(c));
+      if (missing.length === 0) return prev;
+      return [...prev, ...missing];
     });
   }, [steps, origColumns]);
 
@@ -1493,7 +1509,7 @@ export default function Dashboard() {
                                 e.preventDefault();
                                 setHeaderContextMenu({ x: e.clientX, y: e.clientY, col });
                               }}
-                              className={`px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider cursor-pointer select-none border-r border-zinc-800 whitespace-nowrap transition ${
+                              className={`px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider cursor-pointer select-none border-r border-zinc-800 overflow-hidden whitespace-nowrap text-ellipsis transition ${
                                 enrichment ? 'text-indigo-400 bg-indigo-950/20' : 'text-zinc-400'
                               } ${sortCol === col ? 'text-white' : ''} hover:bg-zinc-800/50`}
                               style={{width:160, minWidth:100, maxWidth:280}}
@@ -1516,13 +1532,13 @@ export default function Dashboard() {
                             {columnOrder.map(col => {
                               const val = row.data?.[col] || '';
                               const enrichment = isEnrichCol(col);
-                              const isEditing = editingCell?.rowIndex === ri && editingCell?.col === col;
+                              const isEditing = editingCell?.filteredIndex === ri && editingCell?.col === col;
                               const isEmpty = !val || !val.trim();
                               return (
                                 <td
                                   key={col}
                                   className={`px-2 border-r border-zinc-800/50 overflow-hidden whitespace-nowrap text-ellipsis transition-colors duration-100 hover:bg-zinc-800/70 ${cellColor(val)} ${enrichment ? 'bg-indigo-950/5' : ''} ${enrichment && isEmpty ? 'cursor-pointer' : ''}`}
-                                  style={{maxWidth:280, height: ROW_HEIGHT}}
+                                  style={{maxWidth:280, height: ROW_HEIGHT, width:160}}
                                   onDoubleClick={() => startEdit(ri, col)}
                                   onClick={() => {
                                     if (enrichment && isEmpty) {
@@ -1532,7 +1548,7 @@ export default function Dashboard() {
                                   onContextMenu={(e) => {
                                     if (enrichment) {
                                       e.preventDefault();
-                                      setContextMenu({ x: e.clientX, y: e.clientY, rowIndex: ri, col });
+                                      setContextMenu({ x: e.clientX, y: e.clientY, rowIndex: ri, rowId: row.id, col });
                                     }
                                   }}
                                 >
@@ -2164,17 +2180,19 @@ export default function Dashboard() {
           <button onClick={() => {
             const step = steps.find(s => s.outputColumn === contextMenu.col);
             if (step) {
-              runSingleStep(step, [contextMenu.rowIndex]);
+              const actualIdx = rows.findIndex(r => r.id === contextMenu.rowId);
+              if (actualIdx >= 0) runSingleStep(step, [actualIdx]);
             }
             setContextMenu(null);
           }} className="w-full text-left text-xs px-3 py-1.5 hover:bg-zinc-700 text-zinc-200">▶ Run this row</button>
           <div className="border-t border-zinc-700 my-0.5" />
           <button onClick={() => { startEdit(contextMenu.rowIndex, contextMenu.col); setContextMenu(null); }} className="w-full text-left text-xs px-3 py-1.5 hover:bg-zinc-700 text-zinc-200">✏️ Edit cell</button>
           <button onClick={async () => {
-            const row = rows[contextMenu.rowIndex];
+            const actualIdx = rows.findIndex(r => r.id === contextMenu.rowId);
+            const row = actualIdx >= 0 ? rows[actualIdx] : null;
             if (row) {
               const newData = { ...row.data, [contextMenu.col]: '' };
-              setRows(prev => prev.map((r, i) => i === contextMenu.rowIndex ? { ...r, data: newData } : r));
+              setRows(prev => prev.map(r => r.id === contextMenu.rowId ? { ...r, data: newData } : r));
               try { await supabase.from('list_rows').update({ data: newData }).eq('id', row.id); } catch (e) { /* silent */ }
             }
             setContextMenu(null);
