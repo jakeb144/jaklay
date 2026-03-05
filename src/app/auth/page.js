@@ -11,7 +11,6 @@ export default function AuthPage() {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState('');
   const [pendingPlan, setPendingPlan] = useState(null);
 
   useEffect(() => {
@@ -20,10 +19,8 @@ export default function AuthPage() {
     if (plan) {
       setPendingPlan(plan);
       setMode('signup');
-      // Persist plan intent so it survives email verification redirect
       try { localStorage.setItem('jaklay_pending_plan', plan); } catch (e) {}
     } else {
-      // Check if there's a stored plan intent (from email verification redirect)
       try {
         const stored = localStorage.getItem('jaklay_pending_plan');
         if (stored) setPendingPlan(stored);
@@ -51,7 +48,7 @@ export default function AuthPage() {
   };
 
   const handle = async () => {
-    setError(''); setSuccess(''); setLoading(true);
+    setError(''); setLoading(true);
     try {
       if (mode === 'login') {
         const { error: err } = await supabase.auth.signInWithPassword({ email, password });
@@ -60,22 +57,33 @@ export default function AuthPage() {
           const ok = await startCheckout(pendingPlan);
           if (ok) return;
         }
-        // No pending plan or checkout failed — go to dashboard
         window.location.href = '/';
         return;
       } else {
-        const { data, error: err } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } });
-        if (err) { setError(err.message); setLoading(false); return; }
-        // If auto-confirmed (no email verification required)
-        if (data?.session && pendingPlan) {
+        // Server-side signup — auto-confirms, no email verification, no rate limit
+        const res = await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'signup', email, password, name }),
+        });
+        const data = await res.json();
+        if (!res.ok) { setError(data.error); setLoading(false); return; }
+
+        // Set the session from the server response
+        if (data.session) {
+          await supabase.auth.setSession({
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token,
+          });
+        }
+
+        // Redirect to checkout if pending plan, otherwise dashboard
+        if (pendingPlan) {
           const ok = await startCheckout(pendingPlan);
           if (ok) return;
         }
-        if (!data?.session) {
-          setSuccess(pendingPlan
-            ? 'Check your email to confirm, then log in here to start your trial!'
-            : 'Check your email for a confirmation link!');
-        }
+        window.location.href = '/';
+        return;
       }
     } catch (e) { setError(e.message || 'Something went wrong'); }
     setLoading(false);
@@ -119,7 +127,6 @@ export default function AuthPage() {
             <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" style={s.input} onKeyDown={e=>e.key==='Enter'&&handle()}/>
           </div>
           {error && <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'10px 14px',color:'#dc2626',fontSize:13,marginBottom:16}}>{error}</div>}
-          {success && <div style={{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:8,padding:'10px 14px',color:'#16a34a',fontSize:13,marginBottom:16}}>{success}</div>}
           <button onClick={handle} disabled={loading} style={{width:'100%',padding:14,background:'#6366f1',color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',opacity:loading?0.7:1}}>
             {loading ? 'Please wait...' : pendingPlan ? (mode==='login' ? 'Log In & Start Trial' : 'Sign Up & Start Trial') : mode==='login' ? 'Log In' : 'Sign Up'}
           </button>
