@@ -540,43 +540,30 @@ export default function Dashboard() {
     };
     const baseName = STEP_CATEGORIES.flatMap(c => c.items).find(i => i.type === type)?.name || type;
     const baseSlug = baseName.toLowerCase().replace(/\s+/g, '_');
-    let newStep = null;
-    setSteps(prev => {
-      // generate unique name based on actual current steps
-      const existing = prev.filter(s => s.outputColumn && s.outputColumn.startsWith(baseSlug));
-      let num = existing.length + 1;
-      let colName = `${baseSlug}_${num}`;
-      // ensure truly unique
-      const allNames = new Set(prev.map(s => s.outputColumn));
-      while (allNames.has(colName)) { num++; colName = `${baseSlug}_${num}`; }
-      newStep = {
-        id: `step_${Date.now()}`,
-        type,
-        outputColumn: colName,
-        ...defaults[type],
-        condition: null,
-        rowRange: '',
-      };
-      return [...prev, newStep];
-    });
-    // add to column order (use setTimeout to read after setSteps batch)
-    setTimeout(() => {
-      if (!newStep) return;
-      setColumnOrder(prev => {
-        if (prev.includes(newStep.outputColumn)) return prev;
-        if (insertAfterCol) {
-          const idx = prev.indexOf(insertAfterCol);
-          if (idx >= 0) {
-            const copy = [...prev];
-            copy.splice(idx + 1, 0, newStep.outputColumn);
-            return copy;
-          }
+    const colName = `${baseSlug}_${Date.now().toString(36).slice(-4)}`;
+    const newStep = {
+      id: `step_${Date.now()}`,
+      type,
+      outputColumn: colName,
+      ...defaults[type],
+      condition: null,
+      rowRange: '',
+    };
+    setColumnOrder(prev => {
+      if (prev.includes(colName)) return prev;
+      if (insertAfterCol) {
+        const idx = prev.indexOf(insertAfterCol);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy.splice(idx + 1, 0, colName);
+          return copy;
         }
-        return [...prev, newStep.outputColumn];
-      });
-      openStepConfig(newStep);
-    }, 0);
+      }
+      return [...prev, colName];
+    });
+    setSteps(prev => [...prev, newStep]);
     setShowAddStep(false);
+    openStepConfig(newStep);
   }, [openStepConfig]);
 
   const updateStep = useCallback((stepId, updates) => {
@@ -1534,7 +1521,7 @@ export default function Dashboard() {
                               return (
                                 <td
                                   key={col}
-                                  className={`px-2 border-r border-zinc-800/50 truncate transition-colors duration-100 hover:bg-zinc-800/70 ${cellColor(val)} ${enrichment ? 'bg-indigo-950/5' : ''} ${enrichment && isEmpty ? 'cursor-pointer' : ''}`}
+                                  className={`px-2 border-r border-zinc-800/50 overflow-hidden whitespace-nowrap text-ellipsis transition-colors duration-100 hover:bg-zinc-800/70 ${cellColor(val)} ${enrichment ? 'bg-indigo-950/5' : ''} ${enrichment && isEmpty ? 'cursor-pointer' : ''}`}
                                   style={{maxWidth:280, height: ROW_HEIGHT}}
                                   onDoubleClick={() => startEdit(ri, col)}
                                   onClick={() => {
