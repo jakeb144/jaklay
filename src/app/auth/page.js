@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useAuth } from '@/lib/auth';
 
 export default function AuthPage() {
-  const { signIn, signUp } = useAuth();
+  const auth = useAuth();
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -16,14 +16,14 @@ export default function AuthPage() {
     setError(''); setSuccess(''); setLoading(true);
     try {
       if (mode === 'login') {
-        const { error: err } = await signIn(email, password);
+        const { error: err } = await auth.signIn(email, password);
         if (err) setError(err.message);
       } else {
-        const { error: err } = await signUp(email, password, name);
+        const { error: err } = await auth.signUp(email, password, name);
         if (err) setError(err.message);
         else setSuccess('Check your email for a confirmation link!');
       }
-    } catch (e) { setError(e.message); }
+    } catch (e) { setError(e.message || 'Something went wrong'); }
     setLoading(false);
   };
 
