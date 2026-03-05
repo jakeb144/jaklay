@@ -1,9 +1,9 @@
 'use client';
 import { useState } from 'react';
-import { useAuth } from '@/lib/auth';
+import { createBrowserClient } from '@/lib/supabase';
 
 export default function AuthPage() {
-  const auth = useAuth();
+  const [supabase] = useState(() => createBrowserClient());
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -16,10 +16,11 @@ export default function AuthPage() {
     setError(''); setSuccess(''); setLoading(true);
     try {
       if (mode === 'login') {
-        const { error: err } = await auth.signIn(email, password);
+        const { error: err } = await supabase.auth.signInWithPassword({ email, password });
         if (err) setError(err.message);
+        else window.location.href = '/';
       } else {
-        const { error: err } = await auth.signUp(email, password, name);
+        const { error: err } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } });
         if (err) setError(err.message);
         else setSuccess('Check your email for a confirmation link!');
       }
@@ -37,8 +38,8 @@ export default function AuthPage() {
         </div>
         <div style={{background:'#fff',borderRadius:16,border:'1px solid #e8eaed',padding:32}}>
           <div style={{display:'flex',background:'#f0f1f3',borderRadius:8,padding:2,marginBottom:24}}>
-            <button onClick={()=>setMode('login')} style={{flex:1,padding:'8px 0',borderRadius:6,border:'none',cursor:'pointer',fontSize:14,fontWeight:mode==='login'?600:400,background:mode==='login'?'#fff':'transparent',boxShadow:mode==='login'?'0 1px 3px rgba(0,0,0,0.1)':'none'}}>Log In</button>
-            <button onClick={()=>setMode('signup')} style={{flex:1,padding:'8px 0',borderRadius:6,border:'none',cursor:'pointer',fontSize:14,fontWeight:mode==='signup'?600:400,background:mode==='signup'?'#fff':'transparent',boxShadow:mode==='signup'?'0 1px 3px rgba(0,0,0,0.1)':'none'}}>Sign Up</button>
+            <button onClick={()=>setMode('login')} style={{flex:1,padding:'8px 0',borderRadius:6,border:'none',cursor:'pointer',fontSize:14,fontWeight:mode==='login'?600:400,background:mode==='login'?'#fff':'transparent'}}>Log In</button>
+            <button onClick={()=>setMode('signup')} style={{flex:1,padding:'8px 0',borderRadius:6,border:'none',cursor:'pointer',fontSize:14,fontWeight:mode==='signup'?600:400,background:mode==='signup'?'#fff':'transparent'}}>Sign Up</button>
           </div>
           {mode==='signup'&&<div style={{marginBottom:16}}><label style={{fontSize:11,fontWeight:600,color:'#8b8fa3',textTransform:'uppercase'}}>Full Name</label><input value={name} onChange={e=>setName(e.target.value)} placeholder="Jake Bruce" style={{width:'100%',marginTop:4,padding:'12px 16px',background:'#f8f9fb',border:'1px solid #e2e4ea',borderRadius:12,fontSize:14,outline:'none',boxSizing:'border-box'}}/></div>}
           <div style={{marginBottom:16}}><label style={{fontSize:11,fontWeight:600,color:'#8b8fa3',textTransform:'uppercase'}}>Email</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com" style={{width:'100%',marginTop:4,padding:'12px 16px',background:'#f8f9fb',border:'1px solid #e2e4ea',borderRadius:12,fontSize:14,outline:'none',boxSizing:'border-box'}}/></div>
