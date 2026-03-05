@@ -578,9 +578,7 @@ function StepConfig({ step, columns, keys, onUpdate, onDelete, onDuplicate, rows
 
 // ═══════════════════════════════════════════════════════════════════════════
 export default function Dashboard() {
-  const auth = useAuth();
-  const { user, profile, canRun, incrementUsage, isAdmin, signOut } = auth;
-  const [supabase] = useState(() => createBrowserClient());
+  const { supabase, user, profile, canRun, incrementUsage, isAdmin, signOut } = useAuth();
   const userId = user?.id || 'default';
   const [keys, setKeys] = useState({});
   const [lists, setLists] = useState([]);
@@ -593,7 +591,7 @@ export default function Dashboard() {
   const [panel, setPanel] = useState(null);
   const [testMode, setTestMode] = useState(0);
   const [editCell, setEditCell] = useState(null);
-  const [editValue, setEditValue] = useState("");
+  const [editValue, setEditValue] = useState('');
   const [runningStep, setRunningStep] = useState(null);
   const [runProgress, setRunProgress] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -602,131 +600,22 @@ export default function Dashboard() {
   const [dragCol, setDragCol] = useState(null);
   const [dragOverCol, setDragOverCol] = useState(null);
   const [templateColumns, setTemplateColumns] = useState([]);
-  const [colTypeMap, setColTypeMap] = useState({}); // original col name → detected standard type
+  const [colTypeMap, setColTypeMap] = useState({});
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState('asc');
-  const [filters, setFilters] = useState([]); // [{ column, operator, value }]
+  const [filters, setFilters] = useState([]);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [showMergePanel, setShowMergePanel] = useState(false);
   const [mergeFile, setMergeFile] = useState(null);
-  const [mergePreview, setMergePreview] = useState(null); // { columns, rows, matchCol }
+  const [mergePreview, setMergePreview] = useState(null);
+  const [cellMenu, setCellMenu] = useState(null);
   const fileRef = useRef();
   const mergeRef = useRef();
   const pollRef = useRef();
   const abortRef = useRef(false);
+  const activeJob = runningStep;
 
-  const enrichCols = steps.map(s => s.outputColumn).filter(Boolean);
-  const baseColumns = origColumns.length > 0 ? origColumns : templateColumns;
-  const defaultOrder = autoSortColumns(baseColumns, enrichCols).filter(c => !c.includes('__report'));
-  const allColumns = (columnOrder || defaultOrder).filter(c => !c.includes('__report'));
-  const hasData = rows.length > 0;
-  const hasWorkflow = steps.length > 0;
-
-  // ─── Filter rows ───────────────────────────────────────────────────
-  const filteredRows = rows.filter(row => {
-    return filters.every(f => {
-      if (!f.column) return true;
-      const val = (row.data?.[f.column] || "").toString().toLowerCase().trim();
-      const target = (f.value || "").toLowerCase().trim();
-      switch (f.operator) {
-        case "equals": return val === target;
-        case "not_equals": return val !== target;
-        case "contains": return val.includes(target);
-        case "not_contains": return !val.includes(target);
-        case "is_empty": return val === "";
-        case "is_not_empty": return val !== "";
-        case "greater_than": return parseFloat(val) > parseFloat(target);
-        case "less_than": return parseFloat(val) < parseFloat(target);
-        case "starts_with": return val.startsWith(target);
-        default: return true;
-      }
-    });
-  });
-
-  // ─── Sort rows ─────────────────────────────────────────────────────
-  const displayRows = sortCol ? [...filteredRows].sort((a, b) => {
-    const av = (a.data?.[sortCol] || "").toString();
-    const bv = (b.data?.[sortCol] || "").toString();
-    const numA = parseFloat(av), numB = parseFloat(bv);
-    if (!isNaN(numA) && !isNaN(numB)) return sortDir === 'asc' ? numA - numB : numB - numA;
-    return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
-  }) : filteredRows;
-
-  // ─── Column click sort ─────────────────────────────────────────────
-  const handleSortClick = (col) => {
-    if (sortCol === col) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }
-    else { setSortCol(col); setSortDir('asc'); }
-  };
-
-  // ─── Get unique values for filter suggestions ──────────────────────
-  const getUniqueValues = (col) => {
-    const vals = new Set();
-    rows.forEach(r => { const v = r.data?.[col]; if (v) vals.add(v.toString()); });
-    return [...vals].sort().slice(0, 50);
-  };
-
-  // ─── CSV Merge ─────────────────────────────────────────────────────
-  const handleMergeFile = (file) => {
-    if (!file) return;
-    Papa.parse(file, {
-      header: true, skipEmptyLines: true,
-      complete: (results) => {
-        setMergePreview({
-          columns: results.meta.fields || [],
-          rows: results.data,
-          matchCol: '',
-          targetCol: '',
-          mergeColumns: [],
-        });
-        setShowMergePanel(true);
-      },
-    });
-  };
-
-  const executeMerge = async () => {
-    if (!mergePreview?.matchCol || !mergePreview?.targetCol || mergePreview.mergeColumns.length === 0) return;
-    const lookup = {};
-    mergePreview.rows.forEach(r => {
-      const key = (r[mergePreview.matchCol] || "").toString().toLowerCase().trim();
-      if (key) lookup[key] = r;
-    });
-
-    const updatedRows = rows.map(row => {
-      const key = (row.data?.[mergePreview.targetCol] || "").toString().toLowerCase().trim();
-      const match = lookup[key];
-      if (!match) return row;
-      const newData = { ...row.data };
-      mergePreview.mergeColumns.forEach(col => {
-        if (match[col] !== undefined && match[col] !== "") {
-          newData[col] = match[col];
-        }
-      });
-      return { ...row, data: newData };
-    });
-
-    // Update in DB
-    for (const row of updatedRows) {
-      if (row.data !== rows.find(r => r.id === row.id)?.data) {
-        await supabase.from('list_rows').update({ data: row.data }).eq('id', row.id);
-      }
-    }
-
-    // Add new columns to origColumns if needed
-    const newCols = mergePreview.mergeColumns.filter(c => !origColumns.includes(c));
-    if (newCols.length > 0) {
-      const updated = [...origColumns, ...newCols];
-      setOrigColumns(updated);
-      if (currentListId) {
-        await supabase.from('lists').update({ original_columns: updated }).eq('id', currentListId);
-      }
-    }
-
-    setRows(updatedRows);
-    setShowMergePanel(false);
-    setMergePreview(null);
-  };
-
-  useEffect(() => {
+useEffect(() => {
     (async () => {
       const { data: keyData } = await supabase.from('api_keys').select('provider, encrypted_key').eq('user_id',userId);
       const k = {}; (keyData||[]).forEach(r => { k[r.provider] = r.encrypted_key; }); setKeys(k);
