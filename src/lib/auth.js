@@ -30,8 +30,14 @@ export function AuthProvider({ children }) {
   }, [supabase]);
 
   const loadProfile = async (userId) => {
-    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    setProfile(data);
+    try {
+      const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+      if (error) console.error('Profile load error:', error);
+      setProfile(data || { plan: 'free', enrichment_runs_used: 0, enrichment_runs_limit: 5 });
+    } catch (e) {
+      console.error('Profile load failed:', e);
+      setProfile({ plan: 'free', enrichment_runs_used: 0, enrichment_runs_limit: 5 });
+    }
   };
 
   const signUp = async (email, password, fullName) => {
