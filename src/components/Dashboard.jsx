@@ -226,19 +226,19 @@ export default function Dashboard() {
     try {
       let allRows = [];
       let from = 0;
-      const chunk = 5000;
+      const chunk = 999;
       while (true) {
         const { data, error } = await supabase
           .from('list_rows')
           .select('*')
           .eq('list_id', listId)
           .order('row_index', { ascending: true })
-          .range(from, from + chunk - 1);
+          .range(from, from + chunk);
         if (error) throw error;
         if (!data || data.length === 0) break;
         allRows = allRows.concat(data);
-        if (data.length < chunk) break;
-        from += chunk;
+        if (data.length <= chunk) break;
+        from += data.length;
       }
       return allRows;
     } catch (e) { console.error('loadRows', e); return []; }
@@ -258,6 +258,7 @@ export default function Dashboard() {
     const list = lists.find(l => l.id === listId);
     const loadedRows = await loadRows(listId);
     setRows(loadedRows);
+    // derive columns: prefer original_columns, fallback to keys from first row's data
     let oc = list?.original_columns || [];
     if ((!oc || oc.length === 0) && loadedRows.length > 0) {
       const keySet = new Set();
@@ -269,16 +270,28 @@ export default function Dashboard() {
     const types = {};
     oc.forEach(c => { types[c] = detectColumnType(c) || 'unknown'; });
     setColumnTypes(types);
-    // build column order: core first, then enrichment (from steps), then remaining
-    buildColumnOrder(oc, steps);
     // load associated steps from jobs or workflow
+    let loadedSteps = [];
     try {
-      const { data: jobs } = await supabase.from('jobs').select('*').eq('list_id', listId).order('created_at', { ascending: false }).limit(1);
+      const { data: jobs } = await supabase.from('jobs').select('*').eq('list_id', listId).eq('user_id', userId).order('created_at', { ascending: false }).limit(1);
       if (jobs && jobs.length > 0 && jobs[0].steps) {
-        setSteps(jobs[0].steps);
+        loadedSteps = jobs[0].steps;
+        setSteps(loadedSteps);
+      } else {
+        setSteps([]);
       }
-    } catch (e) { console.error('loadSteps', e); }
-  }, [lists, loadRows, supabase, steps]);
+    } catch (e) { console.error('loadSteps', e); setSteps([]); }
+    // discover any extra columns in row data (enrichment results persisted in rows)
+    if (loadedRows.length > 0) {
+      const allKeys = new Set();
+      loadedRows.slice(0, 50).forEach(r => { Object.keys(r.data || {}).forEach(k => allKeys.add(k)); });
+      const extraCols = [...allKeys].filter(k => !oc.includes(k));
+      if (extraCols.length > 0) oc = [...oc, ...extraCols];
+      setOrigColumns(oc);
+    }
+    // build column order with loaded steps
+    buildColumnOrder(oc, loadedSteps);
+  }, [lists, loadRows, supabase, userId]);
 
   const buildColumnOrder = useCallback((oc, currentSteps) => {
     const enrichCols = (currentSteps || []).map(s => s.outputColumn).filter(Boolean);
@@ -484,7 +497,7 @@ export default function Dashboard() {
 
   /* ─── STEP MANAGEMENT ────────────────────────────────────────────────── */
 
-  const addStep = useCallback((type) => {
+  const addStep = useCallback((type, insertAfterCol = null) => {
     const defaults = {
       ai_enrich: { provider: 'openai', model: 'gpt-4o', prompt: '' },
       web_research: { provider: 'perplexity', model: 'sonar', prompt: '' },
@@ -507,6 +520,17 @@ export default function Dashboard() {
       rowRange: '',
     };
     setSteps(prev => [...prev, newStep]);
+    if (insertAfterCol) {
+      setColumnOrder(prev => {
+        const idx = prev.indexOf(insertAfterCol);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy.splice(idx + 1, 0, newStep.outputColumn);
+          return copy;
+        }
+        return [...prev, newStep.outputColumn];
+      });
+    }
     setShowAddStep(false);
     openStepConfig(newStep);
   }, [steps]);
@@ -569,16 +593,26 @@ export default function Dashboard() {
 
   /* ─── SAVE STEPS TO JOB ─────────────────────────────────────────────── */
 
+  const saveStepsRef = useRef(null);
   const saveSteps = useCallback(async () => {
-    if (!supabase || !activeListId) return;
+    if (!supabase || !activeListId || !steps.length) return;
     try {
-      await supabase.from('jobs').upsert({
-        list_id: activeListId, user_id: userId, steps, status: 'idle', current_step_index: 0, current_row: 0, total_rows: rows.length, error_count: 0, test_limit: testMode
-      }, { onConflict: 'list_id' });
+      const { data: existing } = await supabase.from('jobs').select('id').eq('list_id', activeListId).eq('user_id', userId).limit(1);
+      const payload = { list_id: activeListId, user_id: userId, steps, status: 'idle', current_step_index: 0, current_row: 0, total_rows: rows.length, error_count: 0, test_limit: testMode };
+      if (existing && existing.length > 0) {
+        await supabase.from('jobs').update(payload).eq('id', existing[0].id);
+      } else {
+        await supabase.from('jobs').insert(payload);
+      }
     } catch (e) { console.error('saveSteps', e); }
   }, [supabase, activeListId, userId, steps, rows.length, testMode]);
 
-  useEffect(() => { if (activeListId && steps.length) saveSteps(); }, [steps, activeListId]);
+  useEffect(() => {
+    if (!activeListId || !steps.length) return;
+    if (saveStepsRef.current) clearTimeout(saveStepsRef.current);
+    saveStepsRef.current = setTimeout(() => saveSteps(), 800);
+    return () => { if (saveStepsRef.current) clearTimeout(saveStepsRef.current); };
+  }, [steps, activeListId]);
 
   /* ─── SAVE / LOAD WORKFLOW TEMPLATES ─────────────────────────────────── */
 
@@ -1405,16 +1439,22 @@ export default function Dashboard() {
                 <tbody>
                   {filteredRows.map((row, ri) => (
                     <tr key={row.id || ri} className="border-b border-zinc-800/50 hover:bg-zinc-900/50 transition">
-                      <td className="px-2 py-2.5 text-[10px] text-zinc-600 text-center border-r border-zinc-800 tabular-nums">{(row.row_index != null ? row.row_index : ri) + 1}</td>
+                      <td className="px-2 py-2.5 text-[10px] text-zinc-600 text-center border-r border-zinc-800 tabular-nums">{ri + 1}</td>
                       {columnOrder.map(col => {
                         const val = row.data?.[col] || '';
                         const enrichment = isEnrichCol(col);
                         const isEditing = editingCell?.rowIndex === ri && editingCell?.col === col;
+                        const isEmpty = !val || !val.trim();
                         return (
                           <td
                             key={col}
-                            className={`px-2 py-2.5 border-r border-zinc-800/50 max-w-[240px] truncate ${cellColor(val)} ${enrichment ? 'bg-indigo-950/5' : ''}`}
+                            className={`px-2 py-2.5 border-r border-zinc-800/50 max-w-[240px] truncate transition-colors duration-150 hover:bg-zinc-800/70 ${cellColor(val)} ${enrichment ? 'bg-indigo-950/5' : ''} ${enrichment && isEmpty ? 'cursor-pointer' : ''}`}
                             onDoubleClick={() => startEdit(ri, col)}
+                            onClick={() => {
+                              if (enrichment && isEmpty) {
+                                runForCell(ri, col);
+                              }
+                            }}
                             onContextMenu={(e) => {
                               if (enrichment) {
                                 e.preventDefault();
@@ -1431,6 +1471,8 @@ export default function Dashboard() {
                                 onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingCell(null); }}
                                 className="w-full bg-zinc-800 text-zinc-100 px-1 py-0.5 rounded text-xs outline-none ring-1 ring-indigo-500"
                               />
+                            ) : enrichment && isEmpty ? (
+                              <span className="text-zinc-600 text-[10px] italic">click to run</span>
                             ) : (
                               <span title={val}>{val}</span>
                             )}
@@ -2035,7 +2077,7 @@ export default function Dashboard() {
       {/* ══════ CONTEXT MENUS ══════ */}
 
       {/* Cell context menu */}
-      {contextMenu && (
+      {contextMenu && !contextMenu.useCell && (
         <div
           className="fixed z-[100] bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 min-w-[160px]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
@@ -2044,7 +2086,6 @@ export default function Dashboard() {
           <button onClick={() => {
             const step = steps.find(s => s.outputColumn === contextMenu.col);
             if (step) {
-              const allColStepIndices = rows.map((_, i) => i).filter((_, i) => i === contextMenu.rowIndex);
               runSingleStep(step, [contextMenu.rowIndex]);
             }
             setContextMenu(null);
@@ -2069,14 +2110,14 @@ export default function Dashboard() {
           className="fixed z-[100] bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 min-w-[180px]"
           style={{ left: headerContextMenu.x, top: headerContextMenu.y }}
         >
-          <div className="px-3 py-1 text-[10px] text-zinc-500 uppercase">Add Enrichment Column</div>
+          <div className="px-3 py-1 text-[10px] text-zinc-500 uppercase">Add Column After "{headerContextMenu.col}"</div>
           {STEP_CATEGORIES.map(cat => (
             <div key={cat.label}>
               <div className="px-3 py-0.5 text-[9px] text-zinc-600">{cat.label}</div>
               {cat.items.map(item => (
                 <button
                   key={item.type}
-                  onClick={() => { addStep(item.type); setHeaderContextMenu(null); }}
+                  onClick={() => { addStep(item.type, headerContextMenu.col); setHeaderContextMenu(null); }}
                   className="w-full text-left text-xs px-3 py-1.5 hover:bg-zinc-700 text-zinc-200"
                 >
                   {item.icon} {item.name}
