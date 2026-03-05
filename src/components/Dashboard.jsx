@@ -258,7 +258,12 @@ export default function Dashboard() {
     const list = lists.find(l => l.id === listId);
     const loadedRows = await loadRows(listId);
     setRows(loadedRows);
-    const oc = list?.original_columns || [];
+    let oc = list?.original_columns || [];
+    if ((!oc || oc.length === 0) && loadedRows.length > 0) {
+      const keySet = new Set();
+      loadedRows.slice(0, 20).forEach(r => { Object.keys(r.data || {}).forEach(k => keySet.add(k)); });
+      oc = [...keySet];
+    }
     setOrigColumns(oc);
     // detect column types
     const types = {};
@@ -1400,7 +1405,7 @@ export default function Dashboard() {
                 <tbody>
                   {filteredRows.map((row, ri) => (
                     <tr key={row.id || ri} className="border-b border-zinc-800/50 hover:bg-zinc-900/50 transition">
-                      <td className="px-2 py-2.5 text-[10px] text-zinc-600 text-center border-r border-zinc-800 tabular-nums">{row.row_index + 1}</td>
+                      <td className="px-2 py-2.5 text-[10px] text-zinc-600 text-center border-r border-zinc-800 tabular-nums">{(row.row_index != null ? row.row_index : ri) + 1}</td>
                       {columnOrder.map(col => {
                         const val = row.data?.[col] || '';
                         const enrichment = isEnrichCol(col);
