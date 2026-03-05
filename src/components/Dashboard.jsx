@@ -286,8 +286,8 @@ export default function Dashboard() {
       } else {
         setSteps([]);
       }
-    } catch (e) { console.error('loadSteps', e); setSteps([]); }
-    // discover any extra columns in row data (enrichment results persisted in rows)
+    } catch (e) { console.error('loadSteps', e); }
+    // discover extra columns in row data not in origColumns
     if (loadedRows.length > 0) {
       const allKeys = new Set();
       loadedRows.slice(0, 50).forEach(r => { Object.keys(r.data || {}).forEach(k => allKeys.add(k)); });
@@ -295,6 +295,32 @@ export default function Dashboard() {
       if (extraCols.length > 0) oc = [...oc, ...extraCols];
       setOrigColumns(oc);
     }
+    // auto-recover orphaned enrichment columns
+    const stepColNames = new Set(loadedSteps.map(s => s.outputColumn));
+    const STEP_PATTERNS = { ai_enrich: 'ai_enrich', web_research: 'web_research', find_email: 'api_find_email', waterfall: 'waterfall', verify: 'api_verify', formula: 'formula', condition_gate: 'condition_gate', api_push: 'api_push', scrape: 'scrape' };
+    const orphanSteps = [];
+    oc.forEach(col => {
+      if (stepColNames.has(col)) return;
+      for (const [pattern, type] of Object.entries(STEP_PATTERNS)) {
+        if (col.startsWith(pattern)) {
+          orphanSteps.push({
+            id: 'step_recovered_' + col,
+            type,
+            outputColumn: col,
+            provider: type === 'ai_enrich' ? 'openai' : type === 'web_research' ? 'perplexity' : '',
+            model: type === 'ai_enrich' ? 'gpt-4o' : type === 'web_research' ? 'sonar' : '',
+            prompt: '',
+            condition: null,
+            rowRange: '',
+          });
+          break;
+        }
+      }
+    });
+    if (orphanSteps.length > 0) {
+      loadedSteps = [...loadedSteps, ...orphanSteps];
+    }
+    setSteps(loadedSteps);
     // build column order: check saved order first, then build default
     try {
       const savedOrder = localStorage.getItem(`jaklay_colorder_${listId}`);
