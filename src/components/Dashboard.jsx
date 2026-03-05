@@ -751,7 +751,7 @@ export default function Dashboard() {
     return () => window.removeEventListener('click', h);
   }, [cellMenu]);
 
-  const activeJob = runningStep; // alias for compatibility
+  
 
   useEffect(() => { setColumnOrder(null); }, [steps.length, origColumns.length, templateColumns.length]);
 
@@ -905,9 +905,8 @@ export default function Dashboard() {
 
   // ─── CLIENT-SIDE ENRICHMENT ENGINE ──────────────────────────
   // Runs directly in the browser — no server dependency, no timeout issues
-  const [runningStep, setRunningStep] = useState(null); // stepId
-  const [runProgress, setRunProgress] = useState(null); // { current, total, errors, stepIdx, totalSteps }
-  const abortRef = useRef(false);
+  
+  
 
   const callAIDirect = async (provider, model, prompt) => {
     const key = keys[provider];
@@ -1190,7 +1189,7 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
-            {activeJob ? (
+            {runningStep ? (
               <button onClick={stopRun} className="px-3 py-1.5 bg-red-50 text-red-500 border border-red-200 rounded-lg text-xs font-semibold">■ Stop {runProgress ? Math.round(runProgress.current/runProgress.total*100)+'%' : ''}</button>
             ) : (
               <button onClick={runAll} disabled={!hasData || steps.length===0}
