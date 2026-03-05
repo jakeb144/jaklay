@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createBrowserClient } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { INTEGRATIONS } from '@/lib/engine';
