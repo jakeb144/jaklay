@@ -991,7 +991,6 @@ useEffect(() => {
     setRunningStep(null);
   };
 
-  const [cellMenu, setCellMenu] = useState(null); // {x, y, row, col}
 
   const startEdit = (ri, col) => { setEditCell({ row: ri, col }); setEditValue(rows[ri]?.data?.[col] || ''); };
   const commitEdit = async () => {
