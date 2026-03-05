@@ -2,22 +2,21 @@
 import { useAuth } from '@/lib/auth';
 import AuthPage from './auth/page';
 import Dashboard from '@/components/Dashboard';
+import { useEffect, useState } from 'react';
 
 export default function Home() {
-  const { user, loading, profile } = useAuth();
+  const { user, loading } = useAuth();
+  const [mounted, setMounted] = useState(false);
 
-  if (loading) return (
-    <div className="h-screen flex items-center justify-center bg-gray-50">
-      <div className="text-center">
-        <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-2xl flex items-center justify-center text-white font-mono font-bold text-2xl mx-auto mb-3 shadow-lg shadow-indigo-200">J</div>
-        <p className="text-gray-400 text-sm animate-pulse">Loading...</p>
-      </div>
+  useEffect(() => { setMounted(true); }, []);
+
+  if (!mounted || loading) return (
+    <div style={{minHeight:'100vh',background:'#0a0a0a',display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{width:40,height:40,border:'3px solid #333',borderTop:'3px solid #6366f1',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 
-  // If no auth configured or no user, show auth page
   if (!user) return <AuthPage />;
-
   return <Dashboard />;
 }
-
