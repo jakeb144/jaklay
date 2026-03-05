@@ -578,9 +578,9 @@ function StepConfig({ step, columns, keys, onUpdate, onDelete, onDuplicate, rows
 
 // ═══════════════════════════════════════════════════════════════════════════
 export default function Dashboard() {
-  const { supabase: authSupabase, user, profile, canRun, incrementUsage, isAdmin, signOut } = useAuth();
-  const [supabase] = useState(() => authSupabase || createBrowserClient());
-  const userId = user?.id || 'default';
+  const auth = useAuth();
+  const [supabase] = useState(() => auth.supabase || createBrowserClient());
+  const userId = auth.user?.id || 'default';
   const [keys, setKeys] = useState({});
   const [lists, setLists] = useState([]);
   const [currentListId, setCurrentListId] = useState(null);
