@@ -1,8 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+'use client';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createBrowserClient } from '@/lib/supabase';
-import { useAuth } from '@/lib/auth';
+// import { useAuth } from '@/lib/auth'; // Auth handled by page.js
 import { INTEGRATIONS } from '@/lib/engine';
 import Papa from 'papaparse';
 
@@ -577,9 +580,19 @@ function StepConfig({ step, columns, keys, onUpdate, onDelete, onDuplicate, rows
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-export default function Dashboard({ supabase: supabaseProp, session }) {
-  const { supabase, user, profile, canRun, incrementUsage, isAdmin, signOut } = useAuth();
-  const userId = session?.user?.id || user?.id || 'default';
+export default function Dashboard() {
+  const [supabase] = useState(() => authSupabase || createBrowserClient());
+  const userId = session?.user?.id || 'default';
+  const [profile, setProfile] = useState(null);
+  const isAdmin = profile?.plan === 'admin';
+  const isPaid = ['starter','pro','enterprise','admin'].includes(profile?.plan);
+  const canRun = () => {
+    if (!profile) return true; // allow if profile hasn't loaded yet
+    if (isAdmin || profile.plan === 'pro' || profile.plan === 'enterprise') return true;
+    if (profile.plan === 'starter') return (profile.enrichment_runs_used || 0) < 500;
+    return (profile.enrichment_runs_used || 0) < 5;
+  };
+  const signOut = async () => { await supabase.auth.signOut(); window.location.reload(); };
   const [keys, setKeys] = useState({});
   const [lists, setLists] = useState([]);
   const [currentListId, setCurrentListId] = useState(null);
@@ -590,36 +603,27 @@ export default function Dashboard({ supabase: supabaseProp, session }) {
   const [selectedStep, setSelectedStep] = useState(null);
   const [panel, setPanel] = useState(null);
   const [testMode, setTestMode] = useState(0);
+  const [activeJob, setActiveJob] = useState(null);
+  const [jobProgress, setJobProgress] = useState(null);
   const [editCell, setEditCell] = useState(null);
-  const [editValue, setEditValue] = useState('');
-  const [runningStep, setRunningStep] = useState(null);
-  const [runProgress, setRunProgress] = useState(null);
+  const [editValue, setEditValue] = useState("");
   const [loaded, setLoaded] = useState(false);
-
-  // Fallback: if loading takes more than 3 seconds, show dashboard anyway
-  useEffect(() => {
-    const t = setTimeout(() => setLoaded(true), 3000);
-    return () => clearTimeout(t);
-  }, []);
   const [contextMenu, setContextMenu] = useState(null);
   const [columnOrder, setColumnOrder] = useState(null);
   const [dragCol, setDragCol] = useState(null);
   const [dragOverCol, setDragOverCol] = useState(null);
   const [templateColumns, setTemplateColumns] = useState([]);
-  const [colTypeMap, setColTypeMap] = useState({});
+  const [colTypeMap, setColTypeMap] = useState({}); // original col name → detected standard type
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState('asc');
-  const [filters, setFilters] = useState([]);
+  const [filters, setFilters] = useState([]); // [{ column, operator, value }]
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [showMergePanel, setShowMergePanel] = useState(false);
   const [mergeFile, setMergeFile] = useState(null);
-  const [mergePreview, setMergePreview] = useState(null);
-  const [cellMenu, setCellMenu] = useState(null);
+  const [mergePreview, setMergePreview] = useState(null); // { columns, rows, matchCol }
   const fileRef = useRef();
   const mergeRef = useRef();
   const pollRef = useRef();
-  const abortRef = useRef(false);
-  const activeJob = runningStep;
 
   const enrichCols = steps.map(s => s.outputColumn).filter(Boolean);
   const baseColumns = origColumns.length > 0 ? origColumns : templateColumns;
@@ -628,59 +632,124 @@ export default function Dashboard({ supabase: supabaseProp, session }) {
   const hasData = rows.length > 0;
   const hasWorkflow = steps.length > 0;
 
+  // ─── Filter rows ───────────────────────────────────────────────────
   const filteredRows = rows.filter(row => {
     return filters.every(f => {
       if (!f.column) return true;
-      const val = (row.data?.[f.column] || '').toString().toLowerCase().trim();
-      const target = (f.value || '').toLowerCase().trim();
+      const val = (row.data?.[f.column] || "").toString().toLowerCase().trim();
+      const target = (f.value || "").toLowerCase().trim();
       switch (f.operator) {
-        case 'equals': return val === target;
-        case 'not_equals': return val !== target;
-        case 'contains': return val.includes(target);
-        case 'not_contains': return !val.includes(target);
-        case 'is_empty': return val === '';
-        case 'is_not_empty': return val !== '';
-        case 'greater_than': return parseFloat(val) > parseFloat(target);
-        case 'less_than': return parseFloat(val) < parseFloat(target);
-        case 'starts_with': return val.startsWith(target);
+        case "equals": return val === target;
+        case "not_equals": return val !== target;
+        case "contains": return val.includes(target);
+        case "not_contains": return !val.includes(target);
+        case "is_empty": return val === "";
+        case "is_not_empty": return val !== "";
+        case "greater_than": return parseFloat(val) > parseFloat(target);
+        case "less_than": return parseFloat(val) < parseFloat(target);
+        case "starts_with": return val.startsWith(target);
         default: return true;
       }
     });
   });
 
+  // ─── Sort rows ─────────────────────────────────────────────────────
   const displayRows = sortCol ? [...filteredRows].sort((a, b) => {
-    const av = (a.data?.[sortCol] || '').toString();
-    const bv = (b.data?.[sortCol] || '').toString();
+    const av = (a.data?.[sortCol] || "").toString();
+    const bv = (b.data?.[sortCol] || "").toString();
     const numA = parseFloat(av), numB = parseFloat(bv);
     if (!isNaN(numA) && !isNaN(numB)) return sortDir === 'asc' ? numA - numB : numB - numA;
     return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
   }) : filteredRows;
 
+  // ─── Column click sort ─────────────────────────────────────────────
   const handleSortClick = (col) => {
     if (sortCol === col) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }
     else { setSortCol(col); setSortDir('asc'); }
   };
 
+  // ─── Get unique values for filter suggestions ──────────────────────
   const getUniqueValues = (col) => {
     const vals = new Set();
     rows.forEach(r => { const v = r.data?.[col]; if (v) vals.add(v.toString()); });
     return [...vals].sort().slice(0, 50);
   };
 
+  // ─── CSV Merge ─────────────────────────────────────────────────────
+  const handleMergeFile = (file) => {
+    if (!file) return;
+    Papa.parse(file, {
+      header: true, skipEmptyLines: true,
+      complete: (results) => {
+        setMergePreview({
+          columns: results.meta.fields || [],
+          rows: results.data,
+          matchCol: '',
+          targetCol: '',
+          mergeColumns: [],
+        });
+        setShowMergePanel(true);
+      },
+    });
+  };
 
-useEffect(() => {
+  const executeMerge = async () => {
+    if (!mergePreview?.matchCol || !mergePreview?.targetCol || mergePreview.mergeColumns.length === 0) return;
+    const lookup = {};
+    mergePreview.rows.forEach(r => {
+      const key = (r[mergePreview.matchCol] || "").toString().toLowerCase().trim();
+      if (key) lookup[key] = r;
+    });
+
+    const updatedRows = rows.map(row => {
+      const key = (row.data?.[mergePreview.targetCol] || "").toString().toLowerCase().trim();
+      const match = lookup[key];
+      if (!match) return row;
+      const newData = { ...row.data };
+      mergePreview.mergeColumns.forEach(col => {
+        if (match[col] !== undefined && match[col] !== "") {
+          newData[col] = match[col];
+        }
+      });
+      return { ...row, data: newData };
+    });
+
+    // Update in DB
+    for (const row of updatedRows) {
+      if (row.data !== rows.find(r => r.id === row.id)?.data) {
+        await supabase.from('list_rows').update({ data: row.data }).eq('id', row.id);
+      }
+    }
+
+    // Add new columns to origColumns if needed
+    const newCols = mergePreview.mergeColumns.filter(c => !origColumns.includes(c));
+    if (newCols.length > 0) {
+      const updated = [...origColumns, ...newCols];
+      setOrigColumns(updated);
+      if (currentListId) {
+        await supabase.from('lists').update({ original_columns: updated }).eq('id', currentListId);
+      }
+    }
+
+    setRows(updatedRows);
+    setShowMergePanel(false);
+    setMergePreview(null);
+  };
+
+  useEffect(() => {
     (async () => {
-      try {
-      const { data: keyData } = await supabase.from('api_keys').select('provider, encrypted_key').eq('user_id',userId);
+      // Load profile
+        const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).single();
+        if (profileData) setProfile(profileData);
+        const { data: keyData } = await supabase.from('api_keys').select('provider, encrypted_key').eq('user_id',userId);
       const k = {}; (keyData||[]).forEach(r => { k[r.provider] = r.encrypted_key; }); setKeys(k);
       const { data: listData } = await supabase.from('lists').select('*').eq('user_id',userId).order('created_at',{ascending:false});
       setLists(listData || []);
       const { data: wfData } = await supabase.from('workflows').select('*').eq('user_id',userId).order('created_at',{ascending:false});
       setWorkflows(wfData || []);
-      } catch(e) { console.error('Load error:', e); }
       setLoaded(true);
     })();
-  }, [supabase, userId]);
+  }, [supabase]);
 
   useEffect(() => {
     if (!currentListId) return;
@@ -699,7 +768,7 @@ useEffect(() => {
     return () => window.removeEventListener('click', h);
   }, [cellMenu]);
 
-  
+  const activeJob = runningStep; // alias for compatibility
 
   useEffect(() => { setColumnOrder(null); }, [steps.length, origColumns.length, templateColumns.length]);
 
@@ -853,8 +922,9 @@ useEffect(() => {
 
   // ─── CLIENT-SIDE ENRICHMENT ENGINE ──────────────────────────
   // Runs directly in the browser — no server dependency, no timeout issues
-  
-  
+  const [runningStep, setRunningStep] = useState(null); // stepId
+  const [runProgress, setRunProgress] = useState(null); // { current, total, errors, stepIdx, totalSteps }
+  const abortRef = useRef(false);
 
   const callAIDirect = async (provider, model, prompt) => {
     const key = keys[provider];
@@ -1046,6 +1116,7 @@ useEffect(() => {
     setRunningStep(null);
   };
 
+  const [cellMenu, setCellMenu] = useState(null); // {x, y, row, col}
 
   const startEdit = (ri, col) => { setEditCell({ row: ri, col }); setEditValue(rows[ri]?.data?.[col] || ''); };
   const commitEdit = async () => {
@@ -1136,7 +1207,7 @@ useEffect(() => {
                 </button>
               ))}
             </div>
-            {runningStep ? (
+            {activeJob ? (
               <button onClick={stopRun} className="px-3 py-1.5 bg-red-50 text-red-500 border border-red-200 rounded-lg text-xs font-semibold">■ Stop {runProgress ? Math.round(runProgress.current/runProgress.total*100)+'%' : ''}</button>
             ) : (
               <button onClick={runAll} disabled={!hasData || steps.length===0}
@@ -1649,3 +1720,4 @@ useEffect(() => {
     </div>
   );
 }
+
