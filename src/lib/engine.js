@@ -325,3 +325,82 @@ export async function processStep(step, rowData, keys) {
   if (step.condition?.column && !evalCondition(rowData, step.condition)) {
     return { value: "⏭ Skipped", skipped: true };
   }
+
+  // Skip if already has valid data
+  const existing = rowData[step.outputColumn];
+  if (existing && !existing.startsWith("⚠") && !existing.startsWith("⏭")) {
+    return { value: existing, skipped: true };
+  }
+
+  try {
+    let result = "";
+
+    switch (step.type) {
+      case "ai_enrich":
+      case "web_research": {
+        const filled = interpolate(step.prompt, rowData);
+        result = await callAI(step.provider, step.model, filled, keys);
+        break;
+      }
+
+      case "api_verify": {
+        const email = rowData[step.emailColumn];
+        if (!email) return { value: "⏭ No email" };
+        const d = await verifyEmail(step.verifyProvider || "millionverifier", email, keys);
+        result = d.result || d.quality || JSON.stringify(d);
+        break;
+      }
+
+      case "api_find_email": {
+        const domain = (rowData[step.domainCol] || "").replace(/https?:\/\//, "").replace(/\/.*/, "");
+        const params = { first_name: rowData[step.fnCol] || "", last_name: rowData[step.lnCol] || "", domain };
+        const d = await findEmail(step.emailProvider || "findymail", params, keys);
+        result = d.email || "Not found";
+        break;
+      }
+
+      case "waterfall": {
+        const domain = (rowData[step.domainCol] || "").replace(/https?:\/\//, "").replace(/\/.*/, "");
+        const params = { first_name: rowData[step.fnCol] || "", last_name: rowData[step.lnCol] || "", domain };
+        const d = await waterfallFindEmail(step.waterfallSources || [], params, keys);
+        result = d.email ? `${d.email} (via ${INTEGRATIONS[d.source]?.name || d.source})` : "Not found";
+        // Store the full report in a companion column
+        return {
+          value: result,
+          waterfallReport: d.report,
+        };
+      }
+
+      case "formula": {
+        result = evalFormula(step.formula || "", rowData);
+        break;
+      }
+
+      case "condition_gate": {
+        result = evalCondition(rowData, step.condition) ? "✅ Pass" : "❌ Fail";
+        break;
+      }
+
+      case "api_push": {
+        const email = rowData[step.emailColumn];
+        if (!email || email.startsWith("⚠")) return { value: "⏭ No valid email" };
+        const fnKey = Object.keys(rowData).find(k => /first.?name/i.test(k));
+        const lnKey = Object.keys(rowData).find(k => /last.?name/i.test(k));
+        const coKey = Object.keys(rowData).find(k => /company/i.test(k));
+        await pushToInstantly({
+          email, first_name: fnKey ? rowData[fnKey] : "", last_name: lnKey ? rowData[lnKey] : "",
+          company_name: coKey ? rowData[coKey] : "", campaign_id: step.campaignId,
+        }, keys);
+        result = "✅ Pushed";
+        break;
+      }
+
+      default:
+        result = "Unknown step type";
+    }
+
+    return { value: (result || "").toString().trim() };
+  } catch (err) {
+    return { value: `⚠ ${err.message}`, error: true };
+  }
+}
