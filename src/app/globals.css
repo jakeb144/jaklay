@@ -35,3 +35,8 @@ body { margin: 0; font-family: 'DM Sans', system-ui, sans-serif; background: var
   50% { opacity: 0.5; }
 }
 .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+
+input, select, textarea {
+  color: inherit;
+  background-color: inherit;
+}
