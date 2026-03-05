@@ -11,90 +11,61 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user || null);
-      if (session?.user) await loadProfile(session.user.id);
-      setLoading(false);
-    };
-
-    getSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setUser(session?.user || null);
-      if (session?.user) await loadProfile(session.user.id);
-      else setProfile(null);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const u = session?.user || null;
+      setUser(u);
+      if (u) loadProfile(u);
+      else setLoading(false);
     });
-
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      const u = session?.user || null;
+      setUser(u);
+      if (u) loadProfile(u);
+      else { setProfile(null); setLoading(false); }
+    });
     return () => subscription.unsubscribe();
-  }, [supabase]);
+  }, []);
 
-  const loadProfile = async (userId) => {
+  const loadProfile = async (u) => {
     try {
-      const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-      if (error) console.error('Profile load error:', error);
-      setProfile(data || { plan: 'free', enrichment_runs_used: 0, enrichment_runs_limit: 5 });
+      const { data } = await supabase.from('profiles').select('*').eq('id', u.id).maybeSingle();
+      if (data) { setProfile(data); }
+      else {
+        const { data: created } = await supabase.from('profiles').upsert({
+          id: u.id, email: u.email, plan: 'free',
+          enrichment_runs_used: 0, enrichment_runs_limit: 5, row_limit: 100
+        }, { onConflict: 'id' }).select().single();
+        setProfile(created || { plan: 'free', enrichment_runs_used: 0, enrichment_runs_limit: 5 });
+      }
     } catch (e) {
-      console.error('Profile load failed:', e);
+      console.error('Profile error:', e);
       setProfile({ plan: 'free', enrichment_runs_used: 0, enrichment_runs_limit: 5 });
     }
+    setLoading(false);
   };
 
   const signUp = async (email, password, fullName) => {
-    const { data, error } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { full_name: fullName } },
-    });
-    return { data, error };
+    return await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } });
   };
-
   const signIn = async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    return { data, error };
+    return await supabase.auth.signInWithPassword({ email, password });
   };
-
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
-  };
-
-  const refreshProfile = () => user && loadProfile(user.id);
-
-  // Usage tracking
-  const trackUsage = async (action, metadata = {}) => {
-    if (!user) return;
-    await supabase.from('usage_log').insert({
-      user_id: user.id, action, ...metadata,
-    });
-  };
+  const signOut = async () => { await supabase.auth.signOut(); setUser(null); setProfile(null); };
 
   const canRun = () => {
-    if (!profile) return false;
-    if (profile.plan === 'admin' || profile.plan === 'pro' || profile.plan === 'enterprise') return true;
-    if (profile.plan === 'starter') return profile.enrichment_runs_used < 500;
-    return profile.enrichment_runs_used < 5; // free tier
+    if (!profile) return true;
+    if (['admin','pro','enterprise'].includes(profile.plan)) return true;
+    return (profile.enrichment_runs_used || 0) < (profile.enrichment_runs_limit || 5);
   };
 
-  const incrementUsage = async (count = 1) => {
-    if (!user || !profile) return;
-    const newCount = (profile.enrichment_runs_used || 0) + count;
-    await supabase.from('profiles').update({
-      enrichment_runs_used: newCount,
-      updated_at: new Date().toISOString(),
-    }).eq('id', user.id);
-    setProfile(prev => ({ ...prev, enrichment_runs_used: newCount }));
-  };
+  const isAdmin = profile?.plan === 'admin';
+  const isPaid = ['starter','pro','enterprise','admin'].includes(profile?.plan);
 
-  const value = {
-    supabase, user, profile, loading,
-    signUp, signIn, signOut, refreshProfile,
-    trackUsage, canRun, incrementUsage,
-    isAdmin: profile?.plan === 'admin',
-    isPaid: ['starter', 'pro', 'enterprise', 'admin'].includes(profile?.plan),
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ supabase, user, profile, loading, signUp, signIn, signOut, canRun, isAdmin, isPaid }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export const useAuth = () => useContext(AuthContext);
