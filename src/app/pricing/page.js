@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth';
+import { useState } from 'react';
 
 const PLANS = [
   { name: 'Free', price: '$0', period: '', badge: null, runs: '100 runs/mo', highlight: false, planId: null,
@@ -18,20 +19,41 @@ const PLANS = [
 ];
 
 export default function PricingPage() {
-  const { supabase, user, profile } = useAuth();
+  const { supabase, user, profile, loading } = useAuth();
   const currentPlan = profile?.plan || 'free';
+  const [clickLoading, setClickLoading] = useState(null);
+
   const handleSubscribe = async (planId) => {
     if (!planId) { window.location.href = '/'; return; }
     if (!user) { window.location.href = `/auth?plan=${planId}`; return; }
+
+    setClickLoading(planId);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch('/api/stripe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ action: 'create_checkout', planId }) });
+      if (!session?.access_token) {
+        alert('Session expired. Please log in again.');
+        window.location.href = `/auth?plan=${planId}`;
+        return;
+      }
+      const res = await fetch('/api/stripe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: 'create_checkout', planId }),
+      });
       const data = await res.json();
-      if (data.url) window.location.href = data.url;
-      else if (data.error) alert(data.error);
-    } catch (e) { console.error('Checkout error:', e); }
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        alert(data.error || 'Something went wrong. Please try again.');
+        setClickLoading(null);
+      }
+    } catch (e) {
+      console.error('Checkout error:', e);
+      alert('Connection error. Please try again.');
+      setClickLoading(null);
+    }
   };
+
   return (
     <div style={{ minHeight: '100vh', background: '#f8f9fb', fontFamily: "'DM Sans', system-ui, sans-serif" }}>
       <div style={{ textAlign: 'center', padding: '60px 20px 20px' }}>
@@ -48,7 +70,10 @@ export default function PricingPage() {
         </span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, maxWidth: 1100, margin: '0 auto', padding: '0 20px 60px' }}>
-        {PLANS.map(plan => (
+        {PLANS.map(plan => {
+          const isCurrent = currentPlan === plan.name.toLowerCase();
+          const isLoading = clickLoading === plan.planId;
+          return (
           <div key={plan.name} style={{ background: '#fff', borderRadius: 16, padding: '32px 24px 28px',
             border: plan.highlight ? '2px solid #6366f1' : '1px solid #e5e7eb', position: 'relative',
             display: 'flex', flexDirection: 'column',
@@ -78,18 +103,19 @@ export default function PricingPage() {
               ))}
             </div>
             <button onClick={() => handleSubscribe(plan.planId)}
-              disabled={currentPlan === plan.name.toLowerCase()}
+              disabled={isCurrent || isLoading}
               style={{ marginTop: 20, width: '100%', padding: '12px 0', borderRadius: 10, fontSize: 14, fontWeight: 600,
-                cursor: currentPlan === plan.name.toLowerCase() ? 'default' : 'pointer', border: 'none',
-                opacity: currentPlan === plan.name.toLowerCase() ? 0.5 : 1, transition: 'all 0.15s',
+                cursor: isCurrent || isLoading ? 'default' : 'pointer', border: 'none',
+                opacity: isCurrent ? 0.5 : isLoading ? 0.7 : 1, transition: 'all 0.15s',
                 background: plan.highlight ? '#6366f1' : plan.planId === 'pro' ? '#1e1f2e' : '#fff',
                 color: plan.highlight || plan.planId === 'pro' ? '#fff' : '#374151',
                 boxShadow: plan.highlight ? '0 4px 14px rgba(99,102,241,0.3)' : 'none',
                 ...((!plan.highlight && plan.planId !== 'pro') ? { border: '2px solid #d1d5db' } : {}) }}>
-              {currentPlan === plan.name.toLowerCase() ? 'Current Plan' : plan.cta}
+              {isCurrent ? 'Current Plan' : isLoading ? 'Redirecting...' : plan.cta}
             </button>
           </div>
-        ))}
+          );
+        })}
       </div>
       <div style={{ textAlign: 'center', paddingBottom: 60 }}>
         <div style={{ display: 'inline-flex', gap: 32, alignItems: 'center', fontSize: 14, color: '#6b7280' }}>

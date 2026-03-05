@@ -20,21 +20,34 @@ export default function AuthPage() {
     if (plan) {
       setPendingPlan(plan);
       setMode('signup');
+      // Persist plan intent so it survives email verification redirect
+      try { localStorage.setItem('jaklay_pending_plan', plan); } catch (e) {}
+    } else {
+      // Check if there's a stored plan intent (from email verification redirect)
+      try {
+        const stored = localStorage.getItem('jaklay_pending_plan');
+        if (stored) setPendingPlan(stored);
+      } catch (e) {}
     }
   }, []);
 
   const startCheckout = async (planId) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      if (!session) return false;
       const res = await fetch('/api/stripe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
         body: JSON.stringify({ action: 'create_checkout', planId }),
       });
       const data = await res.json();
-      if (data.url) window.location.href = data.url;
+      if (data.url) {
+        try { localStorage.removeItem('jaklay_pending_plan'); } catch (e) {}
+        window.location.href = data.url;
+        return true;
+      }
     } catch (e) { console.error('Checkout error:', e); }
+    return false;
   };
 
   const handle = async () => {
@@ -44,19 +57,23 @@ export default function AuthPage() {
         const { error: err } = await supabase.auth.signInWithPassword({ email, password });
         if (err) { setError(err.message); setLoading(false); return; }
         if (pendingPlan) {
-          await startCheckout(pendingPlan);
-          return;
+          const ok = await startCheckout(pendingPlan);
+          if (ok) return;
         }
+        // No pending plan or checkout failed — go to dashboard
+        window.location.href = '/';
+        return;
       } else {
         const { data, error: err } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } });
         if (err) { setError(err.message); setLoading(false); return; }
+        // If auto-confirmed (no email verification required)
         if (data?.session && pendingPlan) {
-          await startCheckout(pendingPlan);
-          return;
+          const ok = await startCheckout(pendingPlan);
+          if (ok) return;
         }
         if (!data?.session) {
           setSuccess(pendingPlan
-            ? 'Check your email for a confirmation link, then come back to start your trial!'
+            ? 'Check your email to confirm, then log in here to start your trial!'
             : 'Check your email for a confirmation link!');
         }
       }
@@ -77,7 +94,7 @@ export default function AuthPage() {
         {pendingPlan && (
           <div style={{background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:12,padding:'12px 16px',marginBottom:16,textAlign:'center'}}>
             <span style={{fontSize:13,color:'#4338ca',fontWeight:600}}>
-              Sign up to start your 7-day free trial of {pendingPlan.charAt(0).toUpperCase() + pendingPlan.slice(1)}
+              {mode === 'login' ? 'Log in' : 'Sign up'} to start your 7-day free trial of {pendingPlan.charAt(0).toUpperCase() + pendingPlan.slice(1)}
             </span>
           </div>
         )}
