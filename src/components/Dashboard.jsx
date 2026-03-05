@@ -615,6 +615,53 @@ export default function Dashboard() {
   const abortRef = useRef(false);
   const activeJob = runningStep;
 
+  const enrichCols = steps.map(s => s.outputColumn).filter(Boolean);
+  const baseColumns = origColumns.length > 0 ? origColumns : templateColumns;
+  const defaultOrder = autoSortColumns(baseColumns, enrichCols).filter(c => !c.includes('__report'));
+  const allColumns = (columnOrder || defaultOrder).filter(c => !c.includes('__report'));
+  const hasData = rows.length > 0;
+  const hasWorkflow = steps.length > 0;
+
+  const filteredRows = rows.filter(row => {
+    return filters.every(f => {
+      if (!f.column) return true;
+      const val = (row.data?.[f.column] || '').toString().toLowerCase().trim();
+      const target = (f.value || '').toLowerCase().trim();
+      switch (f.operator) {
+        case 'equals': return val === target;
+        case 'not_equals': return val !== target;
+        case 'contains': return val.includes(target);
+        case 'not_contains': return !val.includes(target);
+        case 'is_empty': return val === '';
+        case 'is_not_empty': return val !== '';
+        case 'greater_than': return parseFloat(val) > parseFloat(target);
+        case 'less_than': return parseFloat(val) < parseFloat(target);
+        case 'starts_with': return val.startsWith(target);
+        default: return true;
+      }
+    });
+  });
+
+  const displayRows = sortCol ? [...filteredRows].sort((a, b) => {
+    const av = (a.data?.[sortCol] || '').toString();
+    const bv = (b.data?.[sortCol] || '').toString();
+    const numA = parseFloat(av), numB = parseFloat(bv);
+    if (!isNaN(numA) && !isNaN(numB)) return sortDir === 'asc' ? numA - numB : numB - numA;
+    return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+  }) : filteredRows;
+
+  const handleSortClick = (col) => {
+    if (sortCol === col) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }
+    else { setSortCol(col); setSortDir('asc'); }
+  };
+
+  const getUniqueValues = (col) => {
+    const vals = new Set();
+    rows.forEach(r => { const v = r.data?.[col]; if (v) vals.add(v.toString()); });
+    return [...vals].sort().slice(0, 50);
+  };
+
+
 useEffect(() => {
     (async () => {
       const { data: keyData } = await supabase.from('api_keys').select('provider, encrypted_key').eq('user_id',userId);
