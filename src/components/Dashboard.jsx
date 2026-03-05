@@ -193,6 +193,12 @@ export default function Dashboard() {
   const mergeInputRef = useRef(null);
   const scrollRef = useRef(null);
 
+  // ── Virtual scroll ──
+  const ROW_HEIGHT = 36;
+  const OVERSCAN = 10;
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(800);
+
   /* ─── NOTIFY HELPER ──────────────────────────────────────────────────── */
 
   const notify = useCallback((msg, type = 'info') => {
@@ -315,7 +321,10 @@ export default function Dashboard() {
       } catch (e) {
         console.error('init load error', e);
       } finally {
-        if (!cancelled) setLoaded(true);
+        if (!cancelled) {
+          setLoaded(true);
+          setTimeout(() => { initialLoadDone.current = true; }, 500);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -594,6 +603,7 @@ export default function Dashboard() {
   /* ─── SAVE STEPS TO JOB ─────────────────────────────────────────────── */
 
   const saveStepsRef = useRef(null);
+  const initialLoadDone = useRef(false);
   const saveSteps = useCallback(async () => {
     if (!supabase || !activeListId || !steps.length) return;
     try {
@@ -608,7 +618,7 @@ export default function Dashboard() {
   }, [supabase, activeListId, userId, steps, rows.length, testMode]);
 
   useEffect(() => {
-    if (!activeListId || !steps.length) return;
+    if (!activeListId || !steps.length || !initialLoadDone.current) return;
     if (saveStepsRef.current) clearTimeout(saveStepsRef.current);
     saveStepsRef.current = setTimeout(() => saveSteps(), 800);
     return () => { if (saveStepsRef.current) clearTimeout(saveStepsRef.current); };
@@ -1117,8 +1127,14 @@ export default function Dashboard() {
   /* ─── COLUMN ORDER REBUILD ON STEP CHANGES ───────────────────────────── */
 
   useEffect(() => {
-    if (origColumns.length) buildColumnOrder(origColumns, steps);
-  }, [steps, origColumns, buildColumnOrder]);
+    if (!origColumns.length) return;
+    const enrichCols = steps.map(s => s.outputColumn).filter(Boolean);
+    setColumnOrder(prev => {
+      const missing = enrichCols.filter(c => !prev.includes(c));
+      if (missing.length === 0) return prev;
+      return [...prev, ...missing];
+    });
+  }, [steps, origColumns]);
 
   /* ─── TEMPLATE PRESETS (NO CSV) ──────────────────────────────────────── */
 
@@ -1389,7 +1405,14 @@ export default function Dashboard() {
 
         {/* ── CENTER: SPREADSHEET ── */}
         <main className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-auto" ref={scrollRef}>
+          <div
+            className="flex-1 overflow-auto"
+            ref={scrollRef}
+            onScroll={(e) => {
+              setScrollTop(e.currentTarget.scrollTop);
+              if (viewportHeight !== e.currentTarget.clientHeight) setViewportHeight(e.currentTarget.clientHeight);
+            }}
+          >
             {rows.length === 0 && origColumns.length === 0 ? (
               /* Empty state */
               <div className="flex flex-col items-center justify-center h-full gap-4">
@@ -1402,88 +1425,107 @@ export default function Dashboard() {
                   <p className="text-amber-400 text-xs mt-2">Workflow ready — upload a CSV to run it</p>
                 )}
               </div>
-            ) : (
-              <table className="w-full text-xs border-collapse">
-                <thead className="sticky top-0 z-10">
-                  <tr className="bg-zinc-900 border-b border-zinc-700">
-                    <th className="w-10 px-2 py-2 text-[10px] text-zinc-500 font-medium text-center border-r border-zinc-800">#</th>
-                    {columnOrder.map(col => {
-                      const enrichment = isEnrichCol(col);
-                      return (
-                        <th
-                          key={col}
-                          draggable
-                          onDragStart={() => handleColDragStart(col)}
-                          onDragOver={(e) => handleColDragOver(e, col)}
-                          onDrop={handleColDrop}
-                          onClick={(e) => {
-                            if (enrichment && !e.shiftKey) handleSort(col, true);
-                            else handleSort(col, false);
-                          }}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            setHeaderContextMenu({ x: e.clientX, y: e.clientY, col });
-                          }}
-                          className={`px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider cursor-pointer select-none border-r border-zinc-800 whitespace-nowrap transition ${
-                            enrichment ? 'text-indigo-400 bg-indigo-950/20' : 'text-zinc-400'
-                          } ${sortCol === col ? 'text-white' : ''} hover:bg-zinc-800/50`}
-                          title={enrichment ? 'Click to configure • Shift+click to sort' : 'Click to sort'}
-                        >
-                          <span>{col.replace(/_/g, ' ')}</span>
-                          {sortCol === col && <span className="ml-1 text-indigo-400">{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRows.map((row, ri) => (
-                    <tr key={row.id || ri} className="border-b border-zinc-800/50 hover:bg-zinc-900/50 transition">
-                      <td className="px-2 py-2.5 text-[10px] text-zinc-600 text-center border-r border-zinc-800 tabular-nums">{ri + 1}</td>
-                      {columnOrder.map(col => {
-                        const val = row.data?.[col] || '';
-                        const enrichment = isEnrichCol(col);
-                        const isEditing = editingCell?.rowIndex === ri && editingCell?.col === col;
-                        const isEmpty = !val || !val.trim();
-                        return (
-                          <td
-                            key={col}
-                            className={`px-2 py-2.5 border-r border-zinc-800/50 max-w-[240px] truncate transition-colors duration-150 hover:bg-zinc-800/70 ${cellColor(val)} ${enrichment ? 'bg-indigo-950/5' : ''} ${enrichment && isEmpty ? 'cursor-pointer' : ''}`}
-                            onDoubleClick={() => startEdit(ri, col)}
-                            onClick={() => {
-                              if (enrichment && isEmpty) {
-                                runForCell(ri, col);
-                              }
-                            }}
-                            onContextMenu={(e) => {
-                              if (enrichment) {
+            ) : (() => {
+              const totalHeight = filteredRows.length * ROW_HEIGHT;
+              const headerHeight = 32;
+              const startIdx = Math.max(0, Math.floor((scrollTop - headerHeight) / ROW_HEIGHT) - OVERSCAN);
+              const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + OVERSCAN * 2;
+              const endIdx = Math.min(filteredRows.length, startIdx + visibleCount);
+              const visibleRows = filteredRows.slice(startIdx, endIdx);
+              const topPad = startIdx * ROW_HEIGHT;
+              const bottomPad = Math.max(0, (filteredRows.length - endIdx) * ROW_HEIGHT);
+              return (
+                <div style={{ minWidth: columnOrder.length * 160 }}>
+                  <table className="w-full text-xs border-collapse table-fixed">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-zinc-900 border-b border-zinc-700">
+                        <th className="w-10 px-2 py-2 text-[10px] text-zinc-500 font-medium text-center border-r border-zinc-800" style={{width:48}}>#</th>
+                        {columnOrder.map(col => {
+                          const enrichment = isEnrichCol(col);
+                          return (
+                            <th
+                              key={col}
+                              draggable
+                              onDragStart={() => handleColDragStart(col)}
+                              onDragOver={(e) => handleColDragOver(e, col)}
+                              onDrop={handleColDrop}
+                              onClick={(e) => {
+                                if (enrichment && !e.shiftKey) handleSort(col, true);
+                                else handleSort(col, false);
+                              }}
+                              onContextMenu={(e) => {
                                 e.preventDefault();
-                                setContextMenu({ x: e.clientX, y: e.clientY, rowIndex: ri, col });
-                              }
-                            }}
-                          >
-                            {isEditing ? (
-                              <input
-                                autoFocus
-                                value={editValue}
-                                onChange={e => setEditValue(e.target.value)}
-                                onBlur={commitEdit}
-                                onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingCell(null); }}
-                                className="w-full bg-zinc-800 text-zinc-100 px-1 py-0.5 rounded text-xs outline-none ring-1 ring-indigo-500"
-                              />
-                            ) : enrichment && isEmpty ? (
-                              <span className="text-zinc-600 text-[10px] italic">click to run</span>
-                            ) : (
-                              <span title={val}>{val}</span>
-                            )}
-                          </td>
+                                setHeaderContextMenu({ x: e.clientX, y: e.clientY, col });
+                              }}
+                              className={`px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider cursor-pointer select-none border-r border-zinc-800 whitespace-nowrap transition ${
+                                enrichment ? 'text-indigo-400 bg-indigo-950/20' : 'text-zinc-400'
+                              } ${sortCol === col ? 'text-white' : ''} hover:bg-zinc-800/50`}
+                              style={{width:160, minWidth:100, maxWidth:280}}
+                              title={enrichment ? 'Click to configure • Shift+click to sort' : 'Click to sort'}
+                            >
+                              <span>{col.replace(/_/g, ' ')}</span>
+                              {sortCol === col && <span className="ml-1 text-indigo-400">{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topPad > 0 && <tr style={{height: topPad}}><td colSpan={columnOrder.length + 1} /></tr>}
+                      {visibleRows.map((row, vi) => {
+                        const ri = startIdx + vi;
+                        return (
+                          <tr key={row.id || ri} className="border-b border-zinc-800/50 hover:bg-zinc-900/50" style={{height: ROW_HEIGHT}}>
+                            <td className="px-2 text-[10px] text-zinc-600 text-center border-r border-zinc-800 tabular-nums" style={{width:48}}>{ri + 1}</td>
+                            {columnOrder.map(col => {
+                              const val = row.data?.[col] || '';
+                              const enrichment = isEnrichCol(col);
+                              const isEditing = editingCell?.rowIndex === ri && editingCell?.col === col;
+                              const isEmpty = !val || !val.trim();
+                              return (
+                                <td
+                                  key={col}
+                                  className={`px-2 border-r border-zinc-800/50 truncate transition-colors duration-100 hover:bg-zinc-800/70 ${cellColor(val)} ${enrichment ? 'bg-indigo-950/5' : ''} ${enrichment && isEmpty ? 'cursor-pointer' : ''}`}
+                                  style={{maxWidth:280, height: ROW_HEIGHT}}
+                                  onDoubleClick={() => startEdit(ri, col)}
+                                  onClick={() => {
+                                    if (enrichment && isEmpty) {
+                                      runForCell(ri, col);
+                                    }
+                                  }}
+                                  onContextMenu={(e) => {
+                                    if (enrichment) {
+                                      e.preventDefault();
+                                      setContextMenu({ x: e.clientX, y: e.clientY, rowIndex: ri, col });
+                                    }
+                                  }}
+                                >
+                                  {isEditing ? (
+                                    <input
+                                      autoFocus
+                                      value={editValue}
+                                      onChange={e => setEditValue(e.target.value)}
+                                      onBlur={commitEdit}
+                                      onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingCell(null); }}
+                                      className="w-full bg-zinc-800 text-zinc-100 px-1 py-0.5 rounded text-xs outline-none ring-1 ring-indigo-500"
+                                    />
+                                  ) : enrichment && isEmpty ? (
+                                    <span className="text-zinc-600 text-[10px] italic">click to run</span>
+                                  ) : (
+                                    <span className="text-xs" title={val}>{val}</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
                         );
                       })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+                      {bottomPad > 0 && <tr style={{height: bottomPad}}><td colSpan={columnOrder.length + 1} /></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Footer */}
