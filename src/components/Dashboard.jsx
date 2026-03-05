@@ -595,6 +595,12 @@ export default function Dashboard() {
   const [runningStep, setRunningStep] = useState(null);
   const [runProgress, setRunProgress] = useState(null);
   const [loaded, setLoaded] = useState(false);
+
+  // Fallback: if loading takes more than 3 seconds, show dashboard anyway
+  useEffect(() => {
+    const t = setTimeout(() => setLoaded(true), 3000);
+    return () => clearTimeout(t);
+  }, []);
   const [contextMenu, setContextMenu] = useState(null);
   const [columnOrder, setColumnOrder] = useState(null);
   const [dragCol, setDragCol] = useState(null);
