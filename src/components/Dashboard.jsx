@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/lib/auth';
+import { getPlanLimits } from '@/lib/plans';
 
 /* ─── CONSTANTS ──────────────────────────────────────────────────────────── */
 
@@ -48,17 +49,17 @@ const WATERFALL_ORDER = Object.keys(PROVIDER_COSTS).sort((a, b) => PROVIDER_COST
 
 const PROMPT_LIBRARY = [
   { id: 'qualify_b2b', name: 'Qualify B2B Fit', provider: 'openai', model: 'gpt-4o-mini', reason: 'Fast and cheap for binary classification',
-    prompt: 'Given the following company info:\nCompany: {company_name}\nIndustry: {industry}\nEmployee count: {employee_count}\n\nIs this a good B2B fit for a SaaS product targeting mid-market companies? Reply YES or NO with a one-sentence reason.' },
+    prompt: 'Given the following company info:\nCompany: {{companyName}}\nIndustry: {{industry}}\nEmployee count: {{employeeCount}}\n\nIs this a good B2B fit for a SaaS product targeting mid-market companies? Reply YES or NO with a one-sentence reason.' },
   { id: 'find_owner', name: 'Find Owner / Decision Maker', provider: 'perplexity', model: 'sonar', reason: 'Needs live web access to find people',
-    prompt: 'Who is the owner or primary decision maker at {company_name}? If it\'s a franchise, who is the local franchisee or operator? Return their full name and title. If unknown, say "Not found".' },
+    prompt: 'Who is the owner or primary decision maker at {{companyName}}? If it\'s a franchise, who is the local franchisee or operator? Return their full name and title. If unknown, say "Not found".' },
   { id: 'match_pr', name: 'Match Best PR Firm', provider: 'perplexity', model: 'sonar-pro', reason: 'Deep research across multiple sources',
-    prompt: 'Research {company_name} in {industry}. Recommend the single best PR firm for them based on industry fit, size match, and geographic proximity to {city}, {state}. Return: Firm Name, Why They Fit (1 sentence), Website.' },
+    prompt: 'Research {{companyName}} in {{industry}}. Recommend the single best PR firm for them based on industry fit, size match, and geographic proximity to {{city}}, {{state}}. Return: Firm Name, Why They Fit (1 sentence), Website.' },
   { id: 'pr_title', name: 'Generate PR Article Title', provider: 'anthropic', model: 'claude-sonnet-4-20250514', reason: 'Creative writing strength',
-    prompt: 'Write a compelling PR article title for {company_name} ({industry}). The article should highlight their unique value proposition. Return only the title, no quotes.' },
+    prompt: 'Write a compelling PR article title for {{companyName}} ({{industry}}). The article should highlight their unique value proposition. Return only the title, no quotes.' },
   { id: 'cold_email', name: 'Write Personalized Cold Email', provider: 'anthropic', model: 'claude-opus-4-20250514', reason: 'Most human-sounding writing',
-    prompt: 'Write a short, personalized cold email to {first_name} {last_name} at {company_name}.\nTheir role: {job_title}\nPurpose: Introduce our catering booking service for food trucks.\nTone: Casual, confident, not salesy.\nMax 4 sentences. Include a specific detail about their company.' },
+    prompt: 'Write a short, personalized cold email to {{firstName}} {{lastName}} at {{companyName}}.\nTheir role: {{jobTitle}}\nPurpose: Introduce our catering booking service for food trucks.\nTone: Casual, confident, not salesy.\nMax 4 sentences. Include a specific detail about their company.' },
   { id: 'confidence', name: 'Data Confidence Score', provider: 'openai', model: 'gpt-4o-mini', reason: 'Simple classification task',
-    prompt: 'Rate the data quality/confidence for this lead on a scale of 1-5:\nName: {first_name} {last_name}\nEmail: {email}\nCompany: {company_name}\nTitle: {job_title}\nPhone: {phone}\n\nScore 5=all fields present and valid, 1=mostly missing. Return only the number.' },
+    prompt: 'Rate the data quality/confidence for this lead on a scale of 1-5:\nName: {{firstName}} {{lastName}}\nEmail: {{email}}\nCompany: {{companyName}}\nTitle: {{jobTitle}}\nPhone: {{phone}}\n\nScore 5=all fields present and valid, 1=mostly missing. Return only the number.' },
 ];
 
 const STEP_CATEGORIES = [
@@ -82,19 +83,20 @@ const STEP_CATEGORIES = [
 ];
 
 const TEMPLATE_PRESETS = [
-  { id: 'lead_basic', name: 'Lead List Basic', columns: ['first_name','last_name','email','company_name','job_title'] },
-  { id: 'lead_full', name: 'Lead List Full', columns: ['first_name','last_name','email','company_name','job_title','phone','website','linkedin','city','state','industry'] },
-  { id: 'company_list', name: 'Company List', columns: ['company_name','industry','website','city','state','employee_count','revenue'] },
-  { id: 'email_campaign', name: 'Email Campaign', columns: ['first_name','last_name','email','company_name','job_title','city','state'] },
+  { id: 'lead_basic', name: 'Lead List Basic', columns: ['firstName','lastName','email','companyName','jobTitle'] },
+  { id: 'lead_full', name: 'Lead List Full', columns: ['firstName','lastName','email','companyName','jobTitle','phone','website','linkedin','city','state','industry'] },
+  { id: 'company_list', name: 'Company List', columns: ['companyName','industry','website','city','state','employeeCount','revenue'] },
+  { id: 'email_campaign', name: 'Email Campaign', columns: ['firstName','lastName','email','companyName','jobTitle','city','state'] },
 ];
 
+// Maps camelCase canonical names to common CSV header variants
 const COL_DETECT_MAP = {
-  first_name: ['first_name','firstname','fname','first','given_name','givenname'],
-  last_name: ['last_name','lastname','lname','last','surname','family_name','familyname'],
-  full_name: ['full_name','fullname','name','contact_name','contactname'],
+  firstName: ['first_name','firstname','fname','first','given_name','givenname','first name'],
+  lastName: ['last_name','lastname','lname','last','surname','family_name','familyname','last name'],
+  fullName: ['full_name','fullname','name','contact_name','contactname','full name'],
   email: ['email','email_address','emailaddress','e_mail','e-mail','work_email','workemail'],
-  company_name: ['company_name','companyname','company','organization','org','employer','business_name'],
-  job_title: ['job_title','jobtitle','title','position','role','designation'],
+  companyName: ['company_name','companyname','company','organization','org','employer','business_name','company name'],
+  jobTitle: ['job_title','jobtitle','title','position','role','designation','job title'],
   phone: ['phone','phone_number','phonenumber','tel','telephone','mobile','cell'],
   website: ['website','url','web','domain','company_url','companyurl','site'],
   linkedin: ['linkedin','linkedin_url','linkedinurl','li_url','linkedin_profile'],
@@ -103,15 +105,18 @@ const COL_DETECT_MAP = {
   country: ['country','nation','country_code','countrycode'],
   industry: ['industry','sector','vertical'],
   revenue: ['revenue','annual_revenue','annualrevenue'],
-  employee_count: ['employee_count','employeecount','employees','company_size','companysize','headcount'],
+  employeeCount: ['employee_count','employeecount','employees','company_size','companysize','headcount','employee count'],
 };
 
-const CORE_COL_ORDER = ['first_name','last_name','full_name','email','company_name','job_title','phone','website','linkedin','city','state','country','industry','revenue','employee_count'];
+// Cold email priority sort order
+const CORE_COL_ORDER = ['firstName','lastName','fullName','email','companyName','jobTitle','linkedin','phone','website','city','state','country','industry','employeeCount','revenue'];
 
+// Returns the camelCase canonical name if a match is found, otherwise null
 function detectColumnType(header) {
   const h = header.toLowerCase().replace(/[\s\-\.]/g, '_').replace(/[^a-z0-9_]/g, '');
-  for (const [type, variants] of Object.entries(COL_DETECT_MAP)) {
-    if (variants.includes(h)) return type;
+  const hSpaced = header.toLowerCase().trim();
+  for (const [canonical, variants] of Object.entries(COL_DETECT_MAP)) {
+    if (canonical.toLowerCase() === h || variants.includes(h) || variants.includes(hSpaced)) return canonical;
   }
   return null;
 }
@@ -399,13 +404,28 @@ export default function Dashboard() {
       const parsed = parseCSV(text);
       if (!parsed.headers.length || !parsed.rows.length) { notify('Empty CSV', 'error'); return; }
 
-      // detect column types
+      // enforce row limit per plan
+      const limits = getPlanLimits(profile?.plan);
+      if (parsed.rows.length > limits.rows) {
+        notify(`Your ${(profile?.plan || 'free').toUpperCase()} plan allows ${limits.rows.toLocaleString()} rows per list. This CSV has ${parsed.rows.length.toLocaleString()} rows. Please upgrade or trim your file.`, 'error');
+        e.target.value = '';
+        return;
+      }
+
+      // detect column types and auto-rename to camelCase canonical names
       const types = {};
+      const usedNames = new Set();
       const mappedHeaders = parsed.headers.map(h => {
         const detected = detectColumnType(h);
-        const cleaned = h.trim();
-        types[cleaned] = detected || 'unknown';
-        return cleaned;
+        // Use canonical camelCase name if detected, otherwise keep original trimmed
+        let colName = detected || h.trim();
+        // handle duplicate detection (e.g., two columns both mapping to same canonical)
+        if (usedNames.has(colName)) {
+          colName = h.trim(); // fall back to original if duplicate
+        }
+        usedNames.add(colName);
+        types[colName] = detected || 'unknown';
+        return colName;
       });
 
       // create list
@@ -702,7 +722,14 @@ export default function Dashboard() {
   /* ─── CLIENT-SIDE ENRICHMENT ENGINE ──────────────────────────────────── */
 
   function interpolatePrompt(template, rowData) {
-    return template.replace(/\{(\w+)\}/g, (_, key) => rowData[key] || '');
+    // Support {{var}} (Instantly convention) and {var} (legacy)
+    return template.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (_, dblKey, sglKey) => {
+      const key = dblKey || sglKey;
+      if (rowData[key] !== undefined) return rowData[key] || '';
+      // fuzzy match: try case-insensitive lookup
+      const match = Object.keys(rowData).find(k => k.toLowerCase() === key.toLowerCase());
+      return match ? (rowData[match] || '') : '';
+    });
   }
 
   function checkCondition(rowData, condition) {
@@ -864,13 +891,24 @@ export default function Dashboard() {
     return '';
   }
 
+  // Extract variable name from {{var}} or {var}
+  function extractVar(s) { return s.replace(/^\{\{?|\}\}?$/g, ''); }
+  function resolveVar(key, rowData) {
+    if (rowData[key] !== undefined) return rowData[key] || '';
+    const match = Object.keys(rowData).find(k => k.toLowerCase() === key.toLowerCase());
+    return match ? (rowData[match] || '') : '';
+  }
+  function replaceVars(str, rowData) {
+    return str.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (_, a, b) => resolveVar(a || b, rowData));
+  }
+
   function evalFormula(formula, rowData) {
     try {
-      // IF {col} is "val" THEN {col2} ELSE "default"
-      const ifMatch = formula.match(/^IF\s+\{(\w+)\}\s+(is|equals|contains|is_not|not_contains)\s+"([^"]*)"\s+THEN\s+"?([^"]*)"?\s+ELSE\s+"?([^"]*)"?$/i);
+      // IF {{col}} is "val" THEN {{col2}} ELSE "default"
+      const ifMatch = formula.match(/^IF\s+\{?\{?(\w+)\}?\}?\s+(is|equals|contains|is_not|not_contains)\s+"([^"]*)"\s+THEN\s+"?([^"]*)"?\s+ELSE\s+"?([^"]*)"?$/i);
       if (ifMatch) {
         const [, col, op, val, thenVal, elseVal] = ifMatch;
-        const cellVal = String(rowData[col] || '').toLowerCase().trim();
+        const cellVal = String(resolveVar(col, rowData)).toLowerCase().trim();
         const checkVal = val.toLowerCase().trim();
         let match = false;
         if (op === 'is' || op === 'equals') match = cellVal === checkVal;
@@ -878,7 +916,7 @@ export default function Dashboard() {
         else if (op === 'is_not') match = cellVal !== checkVal;
         else if (op === 'not_contains') match = !cellVal.includes(checkVal);
         const result = match ? thenVal : elseVal;
-        return result.replace(/\{(\w+)\}/g, (_, k) => rowData[k] || '');
+        return replaceVars(result, rowData);
       }
       // CONCAT
       const concatMatch = formula.match(/^CONCAT\s*\((.+)\)$/i);
@@ -886,7 +924,7 @@ export default function Dashboard() {
         return concatMatch[1].split(',').map(p => {
           p = p.trim();
           if (p.startsWith('"') && p.endsWith('"')) return p.slice(1, -1);
-          if (p.startsWith('{') && p.endsWith('}')) return rowData[p.slice(1, -1)] || '';
+          if ((p.startsWith('{{') && p.endsWith('}}')) || (p.startsWith('{') && p.endsWith('}'))) return resolveVar(extractVar(p), rowData);
           return p;
         }).join('');
       }
@@ -895,13 +933,14 @@ export default function Dashboard() {
       if (orMatch) {
         const parts = orMatch[1].split(',').map(p => p.trim());
         for (const p of parts) {
-          const col = p.replace(/[{}]/g, '');
-          if (rowData[col] && String(rowData[col]).trim()) return rowData[col];
+          const col = extractVar(p);
+          const v = resolveVar(col, rowData);
+          if (v && String(v).trim()) return v;
         }
         return '';
       }
       // variable replacement fallback
-      return formula.replace(/\{(\w+)\}/g, (_, k) => rowData[k] || '');
+      return replaceVars(formula, rowData);
     } catch (e) { return `ERROR: ${e.message}`; }
   }
 
@@ -964,7 +1003,7 @@ export default function Dashboard() {
         const res = await fetch('https://api.instantly.ai/api/v1/lead/add', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api_key: key, campaign_id: step.campaignId, email, first_name: rowData.first_name || '', last_name: rowData.last_name || '', company_name: rowData.company_name || '' }),
+          body: JSON.stringify({ api_key: key, campaign_id: step.campaignId, email, first_name: rowData.firstName || rowData.first_name || '', last_name: rowData.lastName || rowData.last_name || '', company_name: rowData.companyName || rowData.company_name || '' }),
         });
         const data = await res.json();
         return data.status === 'success' || data.status === 200 ? 'pushed' : (data.message || 'error');
@@ -1010,6 +1049,15 @@ export default function Dashboard() {
 
   const runSingleStep = useCallback(async (step, specificRowIndices = null) => {
     if (!rows.length || !step) return;
+
+    // enforce enrichment run limits
+    const limits = getPlanLimits(profile?.plan);
+    const used = profile?.enrichment_runs_used || 0;
+    if (used >= limits.runs) {
+      notify(`Run limit reached (${used.toLocaleString()}/${limits.runs.toLocaleString()}). Upgrade your plan to continue.`, 'error');
+      return;
+    }
+
     setRunningStep(step.id);
     abortRef.current = false;
     const col = step.outputColumn;
@@ -1050,13 +1098,17 @@ export default function Dashboard() {
     setRunningStep(null);
     setRunProgress(null);
 
-    // log usage
+    // log usage and increment run counter
+    const runCount = targetIndices.length;
     try {
       await supabase.from('usage_log').insert({
-        user_id: userId, action: 'enrichment', step_type: step.type, provider: step.provider || null, row_count: targetIndices.length, cost_estimate: 0, metadata: { step_id: step.id }
+        user_id: userId, action: 'enrichment', step_type: step.type, provider: step.provider || null, row_count: runCount, cost_estimate: 0, metadata: { step_id: step.id }
       });
+      // increment enrichment_runs_used in profile
+      const newUsed = (profile?.enrichment_runs_used || 0) + runCount;
+      await supabase.from('profiles').update({ enrichment_runs_used: newUsed, updated_at: new Date().toISOString() }).eq('id', userId);
     } catch (e) { /* silent */ }
-  }, [rows, supabase, userId, testMode, apiKeys]);
+  }, [rows, supabase, userId, testMode, apiKeys, profile]);
 
   const runAll = useCallback(async () => {
     if (!steps.length || !rows.length) return;
@@ -1847,7 +1899,7 @@ export default function Dashboard() {
                           onChange={e => updateStep(step.id, { prompt: e.target.value })}
                           rows={8}
                           className="w-full mt-1 bg-zinc-800 text-xs text-zinc-200 px-2 py-1.5 rounded border border-zinc-700 outline-none focus:border-indigo-500 resize-y font-mono"
-                          placeholder="Use {column_name} for variables..."
+                          placeholder="Use {{columnName}} for variables..."
                         />
                       </div>
 
@@ -1858,10 +1910,10 @@ export default function Dashboard() {
                           {columnOrder.map(c => (
                             <button
                               key={c}
-                              onClick={() => updateStep(step.id, { prompt: (step.prompt || '') + `{${c}}` })}
+                              onClick={() => updateStep(step.id, { prompt: (step.prompt || '') + `{{${c}}}` })}
                               className="text-[10px] px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-200 transition border border-zinc-700"
                             >
-                              {`{${c}}`} <span className="text-zinc-600">{columnTypes[c] || ''}</span>
+                              {`{{${c}}}`} <span className="text-zinc-600">{columnTypes[c] || ''}</span>
                             </button>
                           ))}
                         </div>
@@ -2064,13 +2116,13 @@ export default function Dashboard() {
                         onChange={e => updateStep(step.id, { formula: e.target.value })}
                         rows={4}
                         className="w-full mt-1 bg-zinc-800 text-xs text-zinc-200 px-2 py-1.5 rounded border border-zinc-700 outline-none focus:border-indigo-500 resize-y font-mono"
-                        placeholder='IF {col} is "val" THEN {col2} ELSE ""'
+                        placeholder='IF {{col}} is "val" THEN {{col2}} ELSE ""'
                       />
                       <div className="mt-2 text-[10px] text-zinc-500 space-y-1">
-                        <p>{'IF {col} is "val" THEN "result" ELSE "other"'}</p>
-                        <p>{'IF {col} contains "val" THEN {col2} ELSE ""'}</p>
-                        <p>{'CONCAT({first_name}, " ", {last_name})'}</p>
-                        <p>{'OR({email}, {personal_email})'}</p>
+                        <p>{'IF {{col}} is "val" THEN "result" ELSE "other"'}</p>
+                        <p>{'IF {{col}} contains "val" THEN {{col2}} ELSE ""'}</p>
+                        <p>{'CONCAT({{firstName}}, " ", {{lastName}})'}</p>
+                        <p>{'OR({{email}}, {{personalEmail}})'}</p>
                       </div>
                     </div>
                   )}
@@ -2129,7 +2181,7 @@ export default function Dashboard() {
                           value={step.query || ''}
                           onChange={e => updateStep(step.id, { query: e.target.value })}
                           className="w-full mt-1 bg-zinc-800 text-xs text-zinc-200 px-2 py-1.5 rounded border border-zinc-700 outline-none focus:border-indigo-500"
-                          placeholder="{company_name} CEO email..."
+                          placeholder="{{companyName}} CEO email..."
                         />
                       </div>
                     </>

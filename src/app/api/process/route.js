@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase';
 import { processStep } from '@/lib/engine';
+import { getPlanLimits } from '@/lib/plans';
 
 // Process a batch of rows for a job, then self-chain to continue
 // This runs on the SERVER — survives browser tab close
@@ -19,6 +20,17 @@ export async function POST(req) {
     if (jobErr || !job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
     if (job.status === 'stopped' || job.status === 'completed' || job.status === 'failed') {
       return NextResponse.json({ status: job.status, message: "Job already finished" });
+    }
+
+    // Enforce plan limits server-side
+    const { data: userProfile } = await supabase
+      .from('profiles').select('plan, enrichment_runs_used, enrichment_runs_limit').eq('id', job.user_id).single();
+    if (userProfile) {
+      const limits = getPlanLimits(userProfile.plan);
+      if ((userProfile.enrichment_runs_used || 0) >= limits.runs) {
+        await supabase.from('jobs').update({ status: 'failed', updated_at: new Date().toISOString() }).eq('id', job_id);
+        return NextResponse.json({ error: "Enrichment run limit reached. Upgrade to continue." }, { status: 403 });
+      }
     }
 
     // Load API keys

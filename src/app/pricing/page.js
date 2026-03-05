@@ -3,16 +3,16 @@
 import { useAuth } from '@/lib/auth';
 
 const PLANS = [
-  { name: 'Free', price: '$0', period: '', badge: null, runs: '100 runs/mo', highlight: false, priceId: null,
+  { name: 'Free', price: '$0', period: '', badge: null, runs: '100 runs/mo', highlight: false, planId: null,
     features: ['100 enrichment runs/month','500 rows per list','All AI providers (BYOK)','All step types','CSV import & export','Workflow builder'],
     cta: 'Get Started Free' },
-  { name: 'Starter', price: '$29', period: '/mo', badge: 'MOST POPULAR', runs: '2,000 runs/mo', highlight: true, priceId: 'starter',
+  { name: 'Starter', price: '$29', period: '/mo', badge: 'MOST POPULAR', runs: '2,000 runs/mo', highlight: true, planId: 'starter', trial: 7,
     features: ['2,000 enrichment runs/month','10,000 rows per list','All integrations','Workflow templates','Webhook + Make.com','Priority support'],
     cta: 'Start 7-Day Free Trial' },
-  { name: 'Pro', price: '$79', period: '/mo', badge: null, runs: 'Unlimited', highlight: false, priceId: 'pro',
+  { name: 'Pro', price: '$79', period: '/mo', badge: null, runs: 'Unlimited', highlight: false, planId: 'pro', trial: 7,
     features: ['Unlimited enrichment runs','Unlimited rows','Waterfall email finding','Background processing','Webhook + API access','CSV merge & advanced filters'],
-    cta: 'Start Free Trial' },
-  { name: 'Enterprise', price: '$199', period: '/mo', badge: null, runs: 'Unlimited+', highlight: false, priceId: 'enterprise',
+    cta: 'Start 7-Day Free Trial' },
+  { name: 'Enterprise', price: '$199', period: '/mo', badge: null, runs: 'Unlimited+', highlight: false, planId: 'enterprise',
     features: ['Everything in Pro','Team accounts (coming)','Dedicated support','Custom integrations','White-label option','SLA guarantee'],
     cta: 'Contact Sales' },
 ];
@@ -20,14 +20,16 @@ const PLANS = [
 export default function PricingPage() {
   const { supabase, user, profile } = useAuth();
   const currentPlan = profile?.plan || 'free';
-  const handleSubscribe = async (priceId) => {
-    if (!priceId) { window.location.href = '/'; return; }
+  const handleSubscribe = async (planId) => {
+    if (!planId) { window.location.href = '/'; return; }
     if (!user) { window.location.href = '/auth'; return; }
     try {
-      const res = await fetch('/api/stripe', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'checkout', plan: priceId, userId: user.id, email: user.email }) });
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/stripe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ action: 'create_checkout', planId }) });
       const data = await res.json();
       if (data.url) window.location.href = data.url;
+      else if (data.error) alert(data.error);
     } catch (e) { console.error('Checkout error:', e); }
   };
   return (
@@ -42,7 +44,7 @@ export default function PricingPage() {
       </div>
       <div style={{ textAlign: 'center', marginBottom: 40 }}>
         <span style={{ display: 'inline-block', background: '#fef3c7', color: '#92400e', fontSize: 13, fontWeight: 600, padding: '6px 16px', borderRadius: 20 }}>
-          💰 Save $1,400+/year vs Clay — bring your own API keys, pay wholesale
+          Save $1,400+/year vs Clay — bring your own API keys, pay wholesale
         </span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, maxWidth: 1100, margin: '0 auto', padding: '0 20px 60px' }}>
@@ -64,6 +66,9 @@ export default function PricingPage() {
               {plan.period && <span style={{ fontSize: 16, color: '#9ca3af' }}>{plan.period}</span>}
             </div>
             <div style={{ marginTop: 8, fontSize: 14, fontWeight: 600, color: plan.highlight ? '#6366f1' : '#22c55e' }}>{plan.runs}</div>
+            {plan.trial && (
+              <div style={{ marginTop: 4, fontSize: 12, color: '#6366f1', fontWeight: 500 }}>{plan.trial}-day free trial included</div>
+            )}
             <div style={{ marginTop: 20, flex: 1 }}>
               {plan.features.map((f, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 10 }}>
@@ -72,15 +77,15 @@ export default function PricingPage() {
                 </div>
               ))}
             </div>
-            <button onClick={() => handleSubscribe(plan.priceId)}
+            <button onClick={() => handleSubscribe(plan.planId)}
               disabled={currentPlan === plan.name.toLowerCase()}
               style={{ marginTop: 20, width: '100%', padding: '12px 0', borderRadius: 10, fontSize: 14, fontWeight: 600,
                 cursor: currentPlan === plan.name.toLowerCase() ? 'default' : 'pointer', border: 'none',
                 opacity: currentPlan === plan.name.toLowerCase() ? 0.5 : 1, transition: 'all 0.15s',
-                background: plan.highlight ? '#6366f1' : plan.priceId === 'pro' ? '#1e1f2e' : '#fff',
-                color: plan.highlight || plan.priceId === 'pro' ? '#fff' : '#374151',
+                background: plan.highlight ? '#6366f1' : plan.planId === 'pro' ? '#1e1f2e' : '#fff',
+                color: plan.highlight || plan.planId === 'pro' ? '#fff' : '#374151',
                 boxShadow: plan.highlight ? '0 4px 14px rgba(99,102,241,0.3)' : 'none',
-                ...((!plan.highlight && plan.priceId !== 'pro') ? { border: '2px solid #d1d5db' } : {}) }}>
+                ...((!plan.highlight && plan.planId !== 'pro') ? { border: '2px solid #d1d5db' } : {}) }}>
               {currentPlan === plan.name.toLowerCase() ? 'Current Plan' : plan.cta}
             </button>
           </div>
@@ -90,7 +95,7 @@ export default function PricingPage() {
         <div style={{ display: 'inline-flex', gap: 32, alignItems: 'center', fontSize: 14, color: '#6b7280' }}>
           <span>Clay Starter: <strong style={{ color: '#ef4444', textDecoration: 'line-through' }}>$149/mo</strong></span>
           <span>Clay Pro: <strong style={{ color: '#ef4444', textDecoration: 'line-through' }}>$349/mo</strong></span>
-          <span style={{ color: '#22c55e', fontWeight: 600 }}>Jaklay Pro: $79/mo ✨</span>
+          <span style={{ color: '#22c55e', fontWeight: 600 }}>Jaklay Pro: $79/mo</span>
         </div>
       </div>
     </div>

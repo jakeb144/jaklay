@@ -38,13 +38,14 @@ export const INTEGRATIONS = {
 
 // ─── Template interpolation ──────────────────────────────────
 export function interpolate(template, row) {
-  return template.replace(/\{(\w[\w\s]*)\}/g, (_, key) => {
-    const k = key.trim();
-    const match = Object.keys(row).find(
+  // Support {{var}} (Instantly convention) and {var} (legacy)
+  return template.replace(/\{\{(\w[\w\s]*)\}\}|\{(\w[\w\s]*)\}/g, (match, dblKey, sglKey) => {
+    const k = (dblKey || sglKey).trim();
+    const found = Object.keys(row).find(
       c => c.toLowerCase().replace(/\s+/g, "_") === k.toLowerCase().replace(/\s+/g, "_")
         || c.toLowerCase() === k.toLowerCase()
     );
-    return match ? (row[match] || "") : `{${k}}`;
+    return found ? (row[found] || "") : match;
   });
 }
 

@@ -1,6 +1,7 @@
 'use client';
 import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { createBrowserClient } from './supabase';
+import { getPlanLimits } from './plans';
 
 const AuthContext = createContext({});
 const supabase = createBrowserClient();
@@ -19,14 +20,16 @@ export function AuthProvider({ children }) {
       if (data) {
         setProfile(data);
       } else {
+        const freeLimits = getPlanLimits('free');
         const { data: created } = await supabase.from('profiles').upsert({
           id: u.id, email: u.email, plan: 'free',
-          enrichment_runs_used: 0, enrichment_runs_limit: 5, row_limit: 100
+          enrichment_runs_used: 0, enrichment_runs_limit: freeLimits.runs, row_limit: freeLimits.rows
         }, { onConflict: 'id' }).select().single();
-        setProfile(created || { plan: 'free', enrichment_runs_used: 0, enrichment_runs_limit: 5 });
+        setProfile(created || { plan: 'free', enrichment_runs_used: 0, enrichment_runs_limit: freeLimits.runs, row_limit: freeLimits.rows });
       }
     } catch (e) {
-      setProfile({ plan: 'free', enrichment_runs_used: 0, enrichment_runs_limit: 5 });
+      const fallbackLimits = getPlanLimits('free');
+      setProfile({ plan: 'free', enrichment_runs_used: 0, enrichment_runs_limit: fallbackLimits.runs, row_limit: fallbackLimits.rows });
     } finally {
       loadingProfile.current = false;
       setLoading(false);
@@ -57,8 +60,9 @@ export function AuthProvider({ children }) {
   const isPaid = ['starter','pro','enterprise','admin'].includes(profile?.plan);
   const canRun = () => {
     if (!profile) return true;
-    if (isAdmin || isPaid) return true;
-    return (profile.enrichment_runs_used || 0) < (profile.enrichment_runs_limit || 5);
+    if (isAdmin) return true;
+    const limits = getPlanLimits(profile.plan);
+    return (profile.enrichment_runs_used || 0) < limits.runs;
   };
 
   return (
