@@ -766,7 +766,6 @@ export default function Dashboard() {
     return () => window.removeEventListener('click', h);
   }, [cellMenu]);
 
-  const activeJob = runningStep; // alias for compatibility
 
   useEffect(() => { setColumnOrder(null); }, [steps.length, origColumns.length, templateColumns.length]);
 
