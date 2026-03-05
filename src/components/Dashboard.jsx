@@ -1047,6 +1047,36 @@ export default function Dashboard() {
     notify('Stopped', 'info');
   }, [notify]);
 
+  const filteredRows = useMemo(() => {
+    let result = [...rows];
+    filters.forEach(f => {
+      result = result.filter(r => {
+        const val = String(r.data?.[f.column] || '').toLowerCase().trim();
+        const check = String(f.value || '').toLowerCase().trim();
+        switch (f.operator) {
+          case 'equals': return val === check;
+          case 'not_equals': return val !== check;
+          case 'contains': return val.includes(check);
+          case 'not_contains': return !val.includes(check);
+          case 'is_empty': return val === '';
+          case 'is_not_empty': return val !== '';
+          default: return true;
+        }
+      });
+    });
+    if (sortCol) {
+      result.sort((a, b) => {
+        const va = String(a.data?.[sortCol] || '');
+        const vb = String(b.data?.[sortCol] || '');
+        const numA = parseFloat(va);
+        const numB = parseFloat(vb);
+        if (!isNaN(numA) && !isNaN(numB)) return sortDir === 'asc' ? numA - numB : numB - numA;
+        return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+      });
+    }
+    return result;
+  }, [rows, filters, sortCol, sortDir]);
+
   const runForCell = useCallback(async (filteredRowIndex, colName) => {
     const step = steps.find(s => s.outputColumn === colName);
     if (!step) return;
@@ -1090,41 +1120,6 @@ export default function Dashboard() {
   const removeFilter = useCallback((idx) => {
     setFilters(prev => prev.filter((_, i) => i !== idx));
   }, []);
-
-  const filteredRows = useMemo(() => {
-    let result = [...rows];
-
-    // apply filters
-    filters.forEach(f => {
-      result = result.filter(r => {
-        const val = String(r.data?.[f.column] || '').toLowerCase().trim();
-        const check = String(f.value || '').toLowerCase().trim();
-        switch (f.operator) {
-          case 'equals': return val === check;
-          case 'not_equals': return val !== check;
-          case 'contains': return val.includes(check);
-          case 'not_contains': return !val.includes(check);
-          case 'is_empty': return val === '';
-          case 'is_not_empty': return val !== '';
-          default: return true;
-        }
-      });
-    });
-
-    // apply sort
-    if (sortCol) {
-      result.sort((a, b) => {
-        const va = String(a.data?.[sortCol] || '');
-        const vb = String(b.data?.[sortCol] || '');
-        const numA = parseFloat(va);
-        const numB = parseFloat(vb);
-        if (!isNaN(numA) && !isNaN(numB)) return sortDir === 'asc' ? numA - numB : numB - numA;
-        return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
-      });
-    }
-
-    return result;
-  }, [rows, filters, sortCol, sortDir]);
 
   /* ─── QUICK FILTER PRESETS ───────────────────────────────────────────── */
 
