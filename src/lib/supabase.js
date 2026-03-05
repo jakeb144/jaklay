@@ -1,14 +1,25 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Browser client (uses anon key, respects RLS)
+let browserClient = null;
+
 export function createBrowserClient() {
-  return createClient(
+  if (browserClient) return browserClient;
+  browserClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      auth: {
+        persistSession: true,
+        storageKey: 'jaklay-auth',
+        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      }
+    }
   );
+  return browserClient;
 }
 
-// Server client (uses service role key, bypasses RLS)
 export function createServerClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
