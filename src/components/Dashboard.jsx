@@ -664,15 +664,17 @@ export default function Dashboard() {
 
 useEffect(() => {
     (async () => {
+      try {
       const { data: keyData } = await supabase.from('api_keys').select('provider, encrypted_key').eq('user_id',userId);
       const k = {}; (keyData||[]).forEach(r => { k[r.provider] = r.encrypted_key; }); setKeys(k);
       const { data: listData } = await supabase.from('lists').select('*').eq('user_id',userId).order('created_at',{ascending:false});
       setLists(listData || []);
       const { data: wfData } = await supabase.from('workflows').select('*').eq('user_id',userId).order('created_at',{ascending:false});
       setWorkflows(wfData || []);
+      } catch(e) { console.error('Load error:', e); }
       setLoaded(true);
     })();
-  }, [supabase]);
+  }, [supabase, userId]);
 
   useEffect(() => {
     if (!currentListId) return;
