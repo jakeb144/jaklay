@@ -1,9 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
 import { createBrowserClient } from '@/lib/supabase';
 // import { useAuth } from '@/lib/auth'; // Auth handled by page.js
 import { INTEGRATIONS } from '@/lib/engine';
