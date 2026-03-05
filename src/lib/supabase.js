@@ -1,3 +1,4 @@
+// Supabase client initialization
 import { createClient } from '@supabase/supabase-js';
 
 let browserClient = null;
