@@ -295,8 +295,22 @@ export default function Dashboard() {
       if (extraCols.length > 0) oc = [...oc, ...extraCols];
       setOrigColumns(oc);
     }
-    // build column order with loaded steps
-    buildColumnOrder(oc, loadedSteps);
+    // build column order: check saved order first, then build default
+    try {
+      const savedOrder = localStorage.getItem(`jaklay_colorder_${listId}`);
+      if (savedOrder) {
+        const parsed = JSON.parse(savedOrder);
+        // merge: keep saved order, append any new columns not in saved
+        const allCols = new Set(oc);
+        loadedSteps.forEach(s => { if (s.outputColumn) allCols.add(s.outputColumn); });
+        const missing = [...allCols].filter(c => !parsed.includes(c));
+        setColumnOrder([...parsed.filter(c => allCols.has(c)), ...missing]);
+      } else {
+        buildColumnOrder(oc, loadedSteps);
+      }
+    } catch (e) {
+      buildColumnOrder(oc, loadedSteps);
+    }
   }, [lists, loadRows, supabase, userId]);
 
   const buildColumnOrder = useCallback((oc, currentSteps) => {
@@ -959,7 +973,15 @@ export default function Dashboard() {
     const col = step.outputColumn;
     let targetIndices = specificRowIndices;
     if (!targetIndices && step.rowRange) targetIndices = parseRowRange(step.rowRange, rows.length);
-    if (!targetIndices && testMode > 0) targetIndices = Array.from({ length: Math.min(testMode, rows.length) }, (_, i) => i);
+    if (!targetIndices && testMode > 0) {
+      const blank = [];
+      for (let i = 0; i < rows.length && blank.length < testMode; i++) {
+        const v = rows[i].data?.[col];
+        if (!v || !String(v).trim()) blank.push(i);
+      }
+      targetIndices = blank.length > 0 ? blank : Array.from({ length: Math.min(testMode, rows.length) }, (_, i) => i);
+      notify(`Test mode: running ${targetIndices.length} blank rows (${targetIndices.map(i => i + 1).join(', ')})`, 'info');
+    }
     if (!targetIndices) targetIndices = rows.map((_, i) => i);
 
     let errors = 0;
@@ -1135,6 +1157,13 @@ export default function Dashboard() {
       return [...prev, ...missing];
     });
   }, [steps, origColumns]);
+
+  // persist column order to localStorage
+  useEffect(() => {
+    if (activeListId && columnOrder.length > 0) {
+      try { localStorage.setItem(`jaklay_colorder_${activeListId}`, JSON.stringify(columnOrder)); } catch (e) { /* silent */ }
+    }
+  }, [columnOrder, activeListId]);
 
   /* ─── TEMPLATE PRESETS (NO CSV) ──────────────────────────────────────── */
 
