@@ -601,7 +601,7 @@ export default function Dashboard() {
   const [selectedStep, setSelectedStep] = useState(null);
   const [panel, setPanel] = useState(null);
   const [testMode, setTestMode] = useState(0);
-  const [activeJob, setActiveJob] = useState(null);
+  
   const [jobProgress, setJobProgress] = useState(null);
   const [editCell, setEditCell] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -1204,7 +1204,7 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
-            {activeJob ? (
+            {runningStep ? (
               <button onClick={stopRun} className="px-3 py-1.5 bg-red-50 text-red-500 border border-red-200 rounded-lg text-xs font-semibold">■ Stop {runProgress ? Math.round(runProgress.current/runProgress.total*100)+'%' : ''}</button>
             ) : (
               <button onClick={runAll} disabled={!hasData || steps.length===0}
