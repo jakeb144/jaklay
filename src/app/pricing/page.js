@@ -22,7 +22,7 @@ export default function PricingPage() {
   const currentPlan = profile?.plan || 'free';
   const handleSubscribe = async (planId) => {
     if (!planId) { window.location.href = '/'; return; }
-    if (!user) { window.location.href = '/auth'; return; }
+    if (!user) { window.location.href = `/auth?plan=${planId}`; return; }
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch('/api/stripe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
