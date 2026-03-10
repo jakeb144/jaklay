@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import Papa from 'papaparse';
 import { useAuth } from '@/lib/auth';
 import { getPlanLimits } from '@/lib/plans';
 
@@ -149,6 +150,7 @@ export default function Dashboard() {
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [notification, setNotification] = useState(null);
+  const [showUpgradeCta, setShowUpgradeCta] = useState(false);
 
   // ── Lists & rows ──
   const [lists, setLists] = useState([]);
@@ -203,6 +205,19 @@ export default function Dashboard() {
   const OVERSCAN = 10;
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(800);
+
+  // ── Intermittent upgrade CTA (free users, ~1 in 3 loads, max once per 4 hours) ──
+  useEffect(() => {
+    if (isPaid) return;
+    try {
+      const last = parseInt(localStorage.getItem('jaklay_cta_dismissed') || '0', 10);
+      const hoursSince = (Date.now() - last) / 3.6e6;
+      if (hoursSince > 4 && Math.random() < 0.33) {
+        const timer = setTimeout(() => setShowUpgradeCta(true), 3000);
+        return () => clearTimeout(timer);
+      }
+    } catch (e) {}
+  }, [isPaid]);
 
   /* ─── NOTIFY HELPER ──────────────────────────────────────────────────── */
 
@@ -404,12 +419,14 @@ export default function Dashboard() {
       const parsed = parseCSV(text);
       if (!parsed.headers.length || !parsed.rows.length) { notify('Empty CSV', 'error'); return; }
 
-      // enforce row limit per plan
+      // enforce row limit per plan — truncate to allowed rows instead of rejecting
       const limits = getPlanLimits(profile?.plan);
+      let truncated = false;
       if (parsed.rows.length > limits.rows) {
-        notify(`Your ${(profile?.plan || 'free').toUpperCase()} plan allows ${limits.rows.toLocaleString()} rows per list. This CSV has ${parsed.rows.length.toLocaleString()} rows. Please upgrade or trim your file.`, 'error');
-        e.target.value = '';
-        return;
+        truncated = true;
+        const originalCount = parsed.rows.length;
+        parsed.rows = parsed.rows.slice(0, limits.rows);
+        notify(`Your ${(profile?.plan || 'free').toUpperCase()} plan allows ${limits.rows.toLocaleString()} rows. Imported first ${limits.rows.toLocaleString()} of ${originalCount.toLocaleString()} rows. Upgrade to import more.`, 'info');
       }
 
       // detect column types and auto-rename to camelCase canonical names
@@ -449,7 +466,7 @@ export default function Dashboard() {
       try { localStorage.removeItem('jaklay_colorder_' + listData.id); } catch (e) {}
       const ls = await loadLists();
       await switchList(listData.id);
-      notify(`Imported ${parsed.rows.length} rows`, 'success');
+      if (!truncated) notify(`Imported ${parsed.rows.length} rows`, 'success');
     } catch (e) {
       console.error('CSV import', e);
       notify('Import failed: ' + e.message, 'error');
@@ -460,31 +477,14 @@ export default function Dashboard() {
   /* ─── CSV PARSER ─────────────────────────────────────────────────────── */
 
   function parseCSV(text) {
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length === 0) return { headers: [], rows: [] };
-    const headers = parseCSVLine(lines[0]);
-    const rows = lines.slice(1).map(l => parseCSVLine(l));
+    const result = Papa.parse(text, {
+      header: false,
+      skipEmptyLines: true,
+    });
+    if (!result.data || result.data.length === 0) return { headers: [], rows: [] };
+    const headers = result.data[0].map(h => (h || '').trim());
+    const rows = result.data.slice(1);
     return { headers, rows };
-  }
-
-  function parseCSVLine(line) {
-    const result = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (inQuotes) {
-        if (c === '"' && line[i + 1] === '"') { current += '"'; i++; }
-        else if (c === '"') { inQuotes = false; }
-        else { current += c; }
-      } else {
-        if (c === '"') { inQuotes = true; }
-        else if (c === ',') { result.push(current.trim()); current = ''; }
-        else { current += c; }
-      }
-    }
-    result.push(current.trim());
-    return result;
   }
 
   /* ─── EXPORT CSV ─────────────────────────────────────────────────────── */
@@ -1312,6 +1312,16 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* ── Upgrade CTA (intermittent, free users only) ── */}
+      {showUpgradeCta && !isPaid && (
+        <div className="fixed bottom-6 right-6 z-[150] bg-gradient-to-r from-indigo-600 to-violet-600 rounded-xl shadow-2xl p-4 max-w-xs animate-in">
+          <button onClick={() => { setShowUpgradeCta(false); try { localStorage.setItem('jaklay_cta_dismissed', Date.now().toString()); } catch(e){} }} className="absolute top-2 right-2 text-white/60 hover:text-white text-sm leading-none">✕</button>
+          <p className="text-white text-sm font-semibold mb-1">Unlock more power</p>
+          <p className="text-indigo-100 text-xs mb-3">Get 2,000+ runs/mo, unlimited rows, and priority support with a 7-day free trial.</p>
+          <a href="/pricing" className="inline-block bg-white text-indigo-700 text-xs font-semibold px-4 py-1.5 rounded-lg hover:bg-indigo-50 transition">View Plans</a>
+        </div>
+      )}
+
       {/* ══════ HEADER ══════ */}
       <header className="flex items-center h-11 px-3 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur shrink-0 gap-2">
         {/* Logo */}
@@ -1417,9 +1427,7 @@ export default function Dashboard() {
         <span className={`text-[10px] px-2 py-0.5 rounded-full text-white font-medium ${PLAN_COLORS[plan] || PLAN_COLORS.free}`}>
           {plan.toUpperCase()}
         </span>
-        {profile?.enrichment_runs_limit && profile.enrichment_runs_limit > 0 && (
-          <span className="text-[10px] text-zinc-500">{profile.enrichment_runs_used || 0}/{profile.enrichment_runs_limit} runs</span>
-        )}
+        <span className="text-[10px] text-zinc-500">{profile?.enrichment_runs_used || 0}/{getPlanLimits(plan).runs.toLocaleString()} runs</span>
         {!isPaid && <a href="/pricing" className="text-[10px] text-indigo-400 hover:underline">Upgrade</a>}
         {isAdmin && <a href="/admin" className="text-[10px] text-red-400 hover:underline">Admin</a>}
         <button onClick={signOut} className="text-[10px] text-zinc-500 hover:text-zinc-300">Sign out</button>
