@@ -37,15 +37,32 @@ export const INTEGRATIONS = {
 };
 
 // ─── Template interpolation ──────────────────────────────────
+// Normalize any column name to a canonical form: lowercase, split camelCase, collapse separators to _
+function normalizeColName(name) {
+  return name
+    // Insert underscore before uppercase letters in camelCase: "companyName" → "company_Name"
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    // Replace spaces, hyphens, dots with underscores
+    .replace(/[\s\-\.]+/g, "_")
+    .toLowerCase()
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
 export function interpolate(template, row) {
   // Support {{var}} (Instantly convention) and {var} (legacy)
+  // Pre-build normalized lookup map for the row
+  const normalizedMap = {};
+  for (const key of Object.keys(row)) {
+    normalizedMap[normalizeColName(key)] = key;
+  }
+
   return template.replace(/\{\{(\w[\w\s]*)\}\}|\{(\w[\w\s]*)\}/g, (match, dblKey, sglKey) => {
     const k = (dblKey || sglKey).trim();
-    const found = Object.keys(row).find(
-      c => c.toLowerCase().replace(/\s+/g, "_") === k.toLowerCase().replace(/\s+/g, "_")
-        || c.toLowerCase() === k.toLowerCase()
-    );
-    return found ? (row[found] || "") : match;
+    const nk = normalizeColName(k);
+    const found = normalizedMap[nk];
+    // Return value if found, empty string if not — NEVER return raw {{placeholder}}
+    return found ? (row[found] ?? "") : "";
   });
 }
 
