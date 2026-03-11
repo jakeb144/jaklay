@@ -683,10 +683,13 @@ export default function Dashboard() {
   const saveSteps = useCallback(async () => {
     if (!supabase || !activeListId || !steps.length) return;
     try {
-      const { data: existing } = await supabase.from('jobs').select('id').eq('list_id', activeListId).eq('user_id', userId).limit(1);
+      // Find the most recent job for this list (match load query ordering)
+      const { data: existing } = await supabase.from('jobs').select('id')
+        .eq('list_id', activeListId).eq('user_id', userId)
+        .order('created_at', { ascending: false }).limit(1);
       const payload = { list_id: activeListId, user_id: userId, steps, status: 'idle', current_step_index: 0, current_row: 0, total_rows: rows.length, error_count: 0, test_limit: testMode };
       if (existing && existing.length > 0) {
-        await supabase.from('jobs').update(payload).eq('id', existing[0].id);
+        await supabase.from('jobs').update({ steps }).eq('id', existing[0].id);
       } else {
         await supabase.from('jobs').insert(payload);
       }
