@@ -744,7 +744,7 @@ export default function Dashboard() {
     if (saveStepsRef.current) clearTimeout(saveStepsRef.current);
     saveStepsRef.current = setTimeout(() => saveSteps(), 800);
     return () => { if (saveStepsRef.current) clearTimeout(saveStepsRef.current); };
-  }, [steps, activeListId]);
+  }, [steps, activeListId, saveSteps]);
 
   /* ─── SAVE / LOAD WORKFLOW TEMPLATES ─────────────────────────────────── */
 
