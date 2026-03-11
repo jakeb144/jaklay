@@ -302,7 +302,7 @@ export default function Dashboard() {
     // load associated steps from jobs or workflow
     let loadedSteps = [];
     try {
-      const { data: jobs } = await supabase.from('jobs').select('*').eq('list_id', listId).eq('user_id', userId).order('created_at', { ascending: false }).limit(1);
+      const { data: jobs } = await supabase.from('jobs').select('*').eq('list_id', listId).in('user_id', [userId, 'default']).order('created_at', { ascending: false }).limit(1);
       if (jobs && jobs.length > 0 && jobs[0].steps) {
         loadedSteps = jobs[0].steps;
         setSteps(loadedSteps);
@@ -728,7 +728,7 @@ export default function Dashboard() {
     try {
       // Find the most recent job for this list (match load query ordering)
       const { data: existing } = await supabase.from('jobs').select('id')
-        .eq('list_id', activeListId).eq('user_id', userId)
+        .eq('list_id', activeListId).in('user_id', [userId, 'default'])
         .order('created_at', { ascending: false }).limit(1);
       const payload = { list_id: activeListId, user_id: userId, steps, status: 'idle', current_step_index: 0, current_row: 0, total_rows: rows.length, error_count: 0, test_limit: testMode };
       if (existing && existing.length > 0) {
