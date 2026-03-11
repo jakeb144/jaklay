@@ -164,9 +164,8 @@ export default function Dashboard() {
   const [steps, setSteps] = useState([]);
   const [workflows, setWorkflows] = useState([]);
   const [activeWorkflowId, setActiveWorkflowId] = useState(null);
-  const [draftPrompt, setDraftPrompt] = useState('');
-  const [promptSaved, setPromptSaved] = useState(false);
-  const [draftFormula, setDraftFormula] = useState('');
+  const [draftFields, setDraftFields] = useState({});  // { prompt, formula, outputColumn, campaignId, query, rowRange, conditionValue }
+  const [configSaved, setConfigSaved] = useState(false);
 
   // ── API keys ──
   const [apiKeys, setApiKeys] = useState({});
@@ -576,9 +575,16 @@ export default function Dashboard() {
   const openStepConfig = useCallback((step) => {
     setRightPanel('step');
     setRightPanelData(step);
-    setDraftPrompt(step.prompt || '');
-    setDraftFormula(step.formula || '');
-    setPromptSaved(false);
+    setDraftFields({
+      prompt: step.prompt || '',
+      formula: step.formula || '',
+      outputColumn: step.outputColumn || '',
+      campaignId: step.campaignId || '',
+      query: step.query || '',
+      rowRange: step.rowRange || '',
+      conditionValue: step.condition?.value || '',
+    });
+    setConfigSaved(false);
   }, []);
 
   const addStep = useCallback((type, insertAfterCol = null) => {
@@ -634,6 +640,39 @@ export default function Dashboard() {
   const updateStep = useCallback((stepId, updates) => {
     setSteps(prev => prev.map(s => s.id === stepId ? { ...s, ...updates } : s));
   }, []);
+
+  const setDraft = useCallback((field, value) => {
+    setDraftFields(prev => ({ ...prev, [field]: value }));
+    setConfigSaved(false);
+  }, []);
+
+  const saveStepConfig = useCallback((stepId, step) => {
+    const updates = {};
+    if (draftFields.prompt !== (step.prompt || '')) updates.prompt = draftFields.prompt;
+    if (draftFields.formula !== (step.formula || '')) updates.formula = draftFields.formula;
+    if (draftFields.outputColumn !== (step.outputColumn || '')) updates.outputColumn = draftFields.outputColumn;
+    if (draftFields.campaignId !== (step.campaignId || '')) updates.campaignId = draftFields.campaignId;
+    if (draftFields.query !== (step.query || '')) updates.query = draftFields.query;
+    if (draftFields.rowRange !== (step.rowRange || '')) updates.rowRange = draftFields.rowRange;
+    if (draftFields.conditionValue !== (step.condition?.value || '')) {
+      updates.condition = { ...step.condition, value: draftFields.conditionValue };
+    }
+    if (Object.keys(updates).length > 0) {
+      updateStep(stepId, updates);
+      setConfigSaved(true);
+      setTimeout(() => setConfigSaved(false), 2000);
+    }
+  }, [draftFields, updateStep]);
+
+  const isDraftDirty = useCallback((step) => {
+    return draftFields.prompt !== (step.prompt || '') ||
+      draftFields.formula !== (step.formula || '') ||
+      draftFields.outputColumn !== (step.outputColumn || '') ||
+      draftFields.campaignId !== (step.campaignId || '') ||
+      draftFields.query !== (step.query || '') ||
+      draftFields.rowRange !== (step.rowRange || '') ||
+      draftFields.conditionValue !== (step.condition?.value || '');
+  }, [draftFields]);
 
   const deleteStep = useCallback((stepId) => {
     setSteps(prev => prev.filter(s => s.id !== stepId));
@@ -1818,8 +1857,8 @@ export default function Dashboard() {
                   <div>
                     <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Column Name</label>
                     <input
-                      value={step.outputColumn}
-                      onChange={e => updateStep(step.id, { outputColumn: e.target.value })}
+                      value={draftFields.outputColumn ?? step.outputColumn}
+                      onChange={e => setDraft('outputColumn', e.target.value)}
                       className="w-full mt-1 bg-zinc-800 text-zinc-200 text-xs px-2 py-1.5 rounded border border-zinc-700 outline-none focus:border-indigo-500"
                     />
                   </div>
@@ -1849,8 +1888,8 @@ export default function Dashboard() {
                           </select>
                           {!['is_empty','is_not_empty'].includes(step.condition?.operator) && (
                             <input
-                              value={step.condition?.value || ''}
-                              onChange={e => updateStep(step.id, { condition: { ...step.condition, value: e.target.value } })}
+                              value={draftFields.conditionValue ?? (step.condition?.value || '')}
+                              onChange={e => setDraft('conditionValue', e.target.value)}
                               placeholder="Value..."
                               className="w-full bg-zinc-800 text-xs text-zinc-200 px-2 py-1 rounded border border-zinc-700 outline-none"
                             />
@@ -1900,8 +1939,8 @@ export default function Dashboard() {
                           onChange={e => {
                             const tpl = PROMPT_LIBRARY.find(t => t.id === e.target.value);
                             if (tpl) {
-                              setDraftPrompt(tpl.prompt);
-                              updateStep(step.id, { prompt: tpl.prompt, provider: tpl.provider, model: tpl.model });
+                              setDraft('prompt', tpl.prompt);
+                              updateStep(step.id, { provider: tpl.provider, model: tpl.model });
                             }
                           }}
                           className="w-full mt-1 bg-zinc-800 text-xs text-zinc-200 px-2 py-1 rounded border border-zinc-700"
@@ -1913,33 +1952,14 @@ export default function Dashboard() {
 
                       {/* Prompt */}
                       <div>
-                        <div className="flex items-center justify-between">
-                          <label className="text-[10px] text-zinc-500">Prompt</label>
-                          {draftPrompt !== (step.prompt || '') && (
-                            <span className="text-[9px] text-amber-400">unsaved</span>
-                          )}
-                          {promptSaved && draftPrompt === (step.prompt || '') && (
-                            <span className="text-[9px] text-emerald-400">saved</span>
-                          )}
-                        </div>
+                        <label className="text-[10px] text-zinc-500">Prompt</label>
                         <textarea
-                          value={draftPrompt}
-                          onChange={e => { setDraftPrompt(e.target.value); setPromptSaved(false); }}
+                          value={draftFields.prompt ?? (step.prompt || '')}
+                          onChange={e => setDraft('prompt', e.target.value)}
                           rows={8}
                           className="w-full mt-1 bg-zinc-800 text-xs text-zinc-200 px-2 py-1.5 rounded border border-zinc-700 outline-none focus:border-indigo-500 resize-y font-mono"
                           placeholder="Use {{columnName}} for variables..."
                         />
-                        <button
-                          onClick={() => {
-                            updateStep(step.id, { prompt: draftPrompt });
-                            setPromptSaved(true);
-                            setTimeout(() => setPromptSaved(false), 2000);
-                          }}
-                          disabled={draftPrompt === (step.prompt || '')}
-                          className="mt-1.5 w-full text-xs py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded transition font-medium"
-                        >
-                          {promptSaved ? '✓ Saved' : 'Save Prompt'}
-                        </button>
                       </div>
 
                       {/* Variable chips */}
@@ -1949,7 +1969,7 @@ export default function Dashboard() {
                           {columnOrder.map(c => (
                             <button
                               key={c}
-                              onClick={() => setDraftPrompt(prev => prev + `{{${c}}}`)}
+                              onClick={() => setDraft('prompt', (draftFields.prompt || '') + `{{${c}}}`)}
                               className="text-[10px] px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-200 transition border border-zinc-700"
                             >
                               {`{{${c}}}`} <span className="text-zinc-600">{columnTypes[c] || ''}</span>
@@ -2149,26 +2169,14 @@ export default function Dashboard() {
                   {/* ── FORMULA CONFIG ── */}
                   {step.type === 'formula' && (
                     <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] text-zinc-500">Formula</label>
-                        {draftFormula !== (step.formula || '') && (
-                          <span className="text-[9px] text-amber-400">unsaved</span>
-                        )}
-                      </div>
+                      <label className="text-[10px] text-zinc-500">Formula</label>
                       <textarea
-                        value={draftFormula}
-                        onChange={e => setDraftFormula(e.target.value)}
+                        value={draftFields.formula ?? (step.formula || '')}
+                        onChange={e => setDraft('formula', e.target.value)}
                         rows={4}
                         className="w-full mt-1 bg-zinc-800 text-xs text-zinc-200 px-2 py-1.5 rounded border border-zinc-700 outline-none focus:border-indigo-500 resize-y font-mono"
                         placeholder='IF {{col}} is "val" THEN {{col2}} ELSE ""'
                       />
-                      <button
-                        onClick={() => updateStep(step.id, { formula: draftFormula })}
-                        disabled={draftFormula === (step.formula || '')}
-                        className="mt-1.5 w-full text-xs py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded transition font-medium"
-                      >
-                        Save Formula
-                      </button>
                       <div className="mt-2 text-[10px] text-zinc-500 space-y-1">
                         <p>{'IF {{col}} is "val" THEN "result" ELSE "other"'}</p>
                         <p>{'IF {{col}} contains "val" THEN {{col2}} ELSE ""'}</p>
@@ -2192,8 +2200,8 @@ export default function Dashboard() {
                       <div>
                         <label className="text-[10px] text-zinc-500">Campaign ID</label>
                         <input
-                          value={step.campaignId || ''}
-                          onChange={e => updateStep(step.id, { campaignId: e.target.value })}
+                          value={draftFields.campaignId ?? (step.campaignId || '')}
+                          onChange={e => setDraft('campaignId', e.target.value)}
                           className="w-full mt-1 bg-zinc-800 text-xs text-zinc-200 px-2 py-1.5 rounded border border-zinc-700 outline-none focus:border-indigo-500"
                           placeholder="Instantly campaign ID..."
                         />
@@ -2229,8 +2237,8 @@ export default function Dashboard() {
                       <div>
                         <label className="text-[10px] text-zinc-500">Query</label>
                         <input
-                          value={step.query || ''}
-                          onChange={e => updateStep(step.id, { query: e.target.value })}
+                          value={draftFields.query ?? (step.query || '')}
+                          onChange={e => setDraft('query', e.target.value)}
                           className="w-full mt-1 bg-zinc-800 text-xs text-zinc-200 px-2 py-1.5 rounded border border-zinc-700 outline-none focus:border-indigo-500"
                           placeholder="{{companyName}} CEO email..."
                         />
@@ -2242,8 +2250,8 @@ export default function Dashboard() {
                   <div>
                     <label className="text-[10px] text-zinc-500">Row Range (optional)</label>
                     <input
-                      value={step.rowRange || ''}
-                      onChange={e => updateStep(step.id, { rowRange: e.target.value })}
+                      value={draftFields.rowRange ?? (step.rowRange || '')}
+                      onChange={e => setDraft('rowRange', e.target.value)}
                       placeholder="1-50 or 5,10,15"
                       className="w-full mt-1 bg-zinc-800 text-xs text-zinc-200 px-2 py-1 rounded border border-zinc-700 outline-none"
                     />
@@ -2251,14 +2259,14 @@ export default function Dashboard() {
                       {[10, 50, 100].map(n => (
                         <button
                           key={n}
-                          onClick={() => updateStep(step.id, { rowRange: `1-${n}` })}
+                          onClick={() => setDraft('rowRange', `1-${n}`)}
                           className="text-[10px] px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 transition"
                         >
                           First {n}
                         </button>
                       ))}
                       <button
-                        onClick={() => updateStep(step.id, { rowRange: '' })}
+                        onClick={() => setDraft('rowRange', '')}
                         className="text-[10px] px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 transition"
                       >
                         All
@@ -2266,10 +2274,19 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* ── Actions ── */}
-                  <div className="flex gap-2 pt-2 border-t border-zinc-800">
+                  {/* ── Save + Actions ── */}
+                  <div className="space-y-2 pt-2 border-t border-zinc-800">
                     <button
-                      onClick={() => runSingleStep(step)}
+                      onClick={() => saveStepConfig(step.id, step)}
+                      disabled={!isDraftDirty(step)}
+                      className="w-full text-xs py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded transition font-medium"
+                    >
+                      {configSaved ? '✓ Saved' : isDraftDirty(step) ? 'Save Changes' : 'No Changes'}
+                    </button>
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      onClick={() => { if (isDraftDirty(step)) saveStepConfig(step.id, step); runSingleStep(step); }}
                       disabled={!!runningStep}
                       className="flex-1 text-xs py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded transition font-medium"
                     >
