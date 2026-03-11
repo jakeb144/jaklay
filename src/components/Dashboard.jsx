@@ -653,7 +653,7 @@ export default function Dashboard() {
     setConfigSaved(false);
   }, []);
 
-  const saveStepConfig = useCallback((stepId, step) => {
+  const saveStepConfig = useCallback(async (stepId, step) => {
     const df = draftRef.current;
     const updates = {};
     if (df.prompt !== undefined && df.prompt !== (step.prompt || '')) updates.prompt = df.prompt;
@@ -665,12 +665,27 @@ export default function Dashboard() {
     if (df.conditionValue !== undefined && df.conditionValue !== (step.condition?.value || '')) {
       updates.condition = { ...step.condition, value: df.conditionValue };
     }
-    if (Object.keys(updates).length > 0) {
-      updateStep(stepId, updates);
-      setConfigSaved(true);
-      setTimeout(() => setConfigSaved(false), 2000);
-    }
-  }, [updateStep]);
+    if (Object.keys(updates).length === 0) return;
+    // Update local state
+    updateStep(stepId, updates);
+    setConfigSaved(true);
+    setTimeout(() => setConfigSaved(false), 2000);
+    // Persist to Supabase immediately (don't rely on auto-save effect)
+    if (!supabase || !activeListId) return;
+    try {
+      const newSteps = steps.map(s => s.id === stepId ? { ...s, ...updates } : s);
+      const { data: existing } = await supabase.from('jobs').select('id')
+        .eq('list_id', activeListId).in('user_id', [userId, 'default'])
+        .order('created_at', { ascending: false }).limit(1);
+      if (existing && existing.length > 0) {
+        const { error } = await supabase.from('jobs').update({ steps: newSteps }).eq('id', existing[0].id);
+        if (error) console.error('saveStepConfig update error:', error);
+      } else {
+        const { error } = await supabase.from('jobs').insert({ list_id: activeListId, user_id: userId, steps: newSteps, status: 'idle', current_step_index: 0, current_row: 0, total_rows: rows.length, error_count: 0 });
+        if (error) console.error('saveStepConfig insert error:', error);
+      }
+    } catch (e) { console.error('saveStepConfig persist error:', e); }
+  }, [updateStep, supabase, activeListId, userId, steps, rows.length]);
 
   const deleteStep = useCallback((stepId) => {
     setSteps(prev => prev.filter(s => s.id !== stepId));
@@ -732,9 +747,11 @@ export default function Dashboard() {
         .order('created_at', { ascending: false }).limit(1);
       const payload = { list_id: activeListId, user_id: userId, steps, status: 'idle', current_step_index: 0, current_row: 0, total_rows: rows.length, error_count: 0, test_limit: testMode };
       if (existing && existing.length > 0) {
-        await supabase.from('jobs').update({ steps }).eq('id', existing[0].id);
+        const { error } = await supabase.from('jobs').update({ steps }).eq('id', existing[0].id);
+        if (error) console.error('saveSteps update error:', error);
       } else {
-        await supabase.from('jobs').insert(payload);
+        const { error } = await supabase.from('jobs').insert(payload);
+        if (error) console.error('saveSteps insert error:', error);
       }
     } catch (e) { console.error('saveSteps', e); }
   }, [supabase, activeListId, userId, steps, rows.length, testMode]);
