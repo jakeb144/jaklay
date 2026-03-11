@@ -164,6 +164,9 @@ export default function Dashboard() {
   const [steps, setSteps] = useState([]);
   const [workflows, setWorkflows] = useState([]);
   const [activeWorkflowId, setActiveWorkflowId] = useState(null);
+  const [draftPrompt, setDraftPrompt] = useState('');
+  const [promptSaved, setPromptSaved] = useState(false);
+  const [draftFormula, setDraftFormula] = useState('');
 
   // ── API keys ──
   const [apiKeys, setApiKeys] = useState({});
@@ -573,6 +576,9 @@ export default function Dashboard() {
   const openStepConfig = useCallback((step) => {
     setRightPanel('step');
     setRightPanelData(step);
+    setDraftPrompt(step.prompt || '');
+    setDraftFormula(step.formula || '');
+    setPromptSaved(false);
   }, []);
 
   const addStep = useCallback((type, insertAfterCol = null) => {
@@ -1893,7 +1899,10 @@ export default function Dashboard() {
                           value=""
                           onChange={e => {
                             const tpl = PROMPT_LIBRARY.find(t => t.id === e.target.value);
-                            if (tpl) updateStep(step.id, { prompt: tpl.prompt, provider: tpl.provider, model: tpl.model });
+                            if (tpl) {
+                              setDraftPrompt(tpl.prompt);
+                              updateStep(step.id, { prompt: tpl.prompt, provider: tpl.provider, model: tpl.model });
+                            }
                           }}
                           className="w-full mt-1 bg-zinc-800 text-xs text-zinc-200 px-2 py-1 rounded border border-zinc-700"
                         >
@@ -1904,14 +1913,33 @@ export default function Dashboard() {
 
                       {/* Prompt */}
                       <div>
-                        <label className="text-[10px] text-zinc-500">Prompt</label>
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] text-zinc-500">Prompt</label>
+                          {draftPrompt !== (step.prompt || '') && (
+                            <span className="text-[9px] text-amber-400">unsaved</span>
+                          )}
+                          {promptSaved && draftPrompt === (step.prompt || '') && (
+                            <span className="text-[9px] text-emerald-400">saved</span>
+                          )}
+                        </div>
                         <textarea
-                          value={step.prompt || ''}
-                          onChange={e => updateStep(step.id, { prompt: e.target.value })}
+                          value={draftPrompt}
+                          onChange={e => { setDraftPrompt(e.target.value); setPromptSaved(false); }}
                           rows={8}
                           className="w-full mt-1 bg-zinc-800 text-xs text-zinc-200 px-2 py-1.5 rounded border border-zinc-700 outline-none focus:border-indigo-500 resize-y font-mono"
                           placeholder="Use {{columnName}} for variables..."
                         />
+                        <button
+                          onClick={() => {
+                            updateStep(step.id, { prompt: draftPrompt });
+                            setPromptSaved(true);
+                            setTimeout(() => setPromptSaved(false), 2000);
+                          }}
+                          disabled={draftPrompt === (step.prompt || '')}
+                          className="mt-1.5 w-full text-xs py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded transition font-medium"
+                        >
+                          {promptSaved ? '✓ Saved' : 'Save Prompt'}
+                        </button>
                       </div>
 
                       {/* Variable chips */}
@@ -1921,7 +1949,7 @@ export default function Dashboard() {
                           {columnOrder.map(c => (
                             <button
                               key={c}
-                              onClick={() => updateStep(step.id, { prompt: (step.prompt || '') + `{{${c}}}` })}
+                              onClick={() => setDraftPrompt(prev => prev + `{{${c}}}`)}
                               className="text-[10px] px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-200 transition border border-zinc-700"
                             >
                               {`{{${c}}}`} <span className="text-zinc-600">{columnTypes[c] || ''}</span>
@@ -2121,14 +2149,26 @@ export default function Dashboard() {
                   {/* ── FORMULA CONFIG ── */}
                   {step.type === 'formula' && (
                     <div>
-                      <label className="text-[10px] text-zinc-500">Formula</label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] text-zinc-500">Formula</label>
+                        {draftFormula !== (step.formula || '') && (
+                          <span className="text-[9px] text-amber-400">unsaved</span>
+                        )}
+                      </div>
                       <textarea
-                        value={step.formula || ''}
-                        onChange={e => updateStep(step.id, { formula: e.target.value })}
+                        value={draftFormula}
+                        onChange={e => setDraftFormula(e.target.value)}
                         rows={4}
                         className="w-full mt-1 bg-zinc-800 text-xs text-zinc-200 px-2 py-1.5 rounded border border-zinc-700 outline-none focus:border-indigo-500 resize-y font-mono"
                         placeholder='IF {{col}} is "val" THEN {{col2}} ELSE ""'
                       />
+                      <button
+                        onClick={() => updateStep(step.id, { formula: draftFormula })}
+                        disabled={draftFormula === (step.formula || '')}
+                        className="mt-1.5 w-full text-xs py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded transition font-medium"
+                      >
+                        Save Formula
+                      </button>
                       <div className="mt-2 text-[10px] text-zinc-500 space-y-1">
                         <p>{'IF {{col}} is "val" THEN "result" ELSE "other"'}</p>
                         <p>{'IF {{col}} contains "val" THEN {{col2}} ELSE ""'}</p>
