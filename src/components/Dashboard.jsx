@@ -165,6 +165,7 @@ export default function Dashboard() {
   const [workflows, setWorkflows] = useState([]);
   const [activeWorkflowId, setActiveWorkflowId] = useState(null);
   const [draftFields, setDraftFields] = useState({});  // { prompt, formula, outputColumn, campaignId, query, rowRange, conditionValue }
+  const draftRef = useRef({});
   const [configSaved, setConfigSaved] = useState(false);
 
   // ── API keys ──
@@ -575,7 +576,7 @@ export default function Dashboard() {
   const openStepConfig = useCallback((step) => {
     setRightPanel('step');
     setRightPanelData(step);
-    setDraftFields({
+    const initial = {
       prompt: step.prompt || '',
       formula: step.formula || '',
       outputColumn: step.outputColumn || '',
@@ -583,7 +584,9 @@ export default function Dashboard() {
       query: step.query || '',
       rowRange: step.rowRange || '',
       conditionValue: step.condition?.value || '',
-    });
+    };
+    setDraftFields(initial);
+    draftRef.current = initial;
     setConfigSaved(false);
   }, []);
 
@@ -642,37 +645,32 @@ export default function Dashboard() {
   }, []);
 
   const setDraft = useCallback((field, value) => {
-    setDraftFields(prev => ({ ...prev, [field]: value }));
+    setDraftFields(prev => {
+      const next = { ...prev, [field]: value };
+      draftRef.current = next;
+      return next;
+    });
     setConfigSaved(false);
   }, []);
 
   const saveStepConfig = useCallback((stepId, step) => {
+    const df = draftRef.current;
     const updates = {};
-    if (draftFields.prompt !== (step.prompt || '')) updates.prompt = draftFields.prompt;
-    if (draftFields.formula !== (step.formula || '')) updates.formula = draftFields.formula;
-    if (draftFields.outputColumn !== (step.outputColumn || '')) updates.outputColumn = draftFields.outputColumn;
-    if (draftFields.campaignId !== (step.campaignId || '')) updates.campaignId = draftFields.campaignId;
-    if (draftFields.query !== (step.query || '')) updates.query = draftFields.query;
-    if (draftFields.rowRange !== (step.rowRange || '')) updates.rowRange = draftFields.rowRange;
-    if (draftFields.conditionValue !== (step.condition?.value || '')) {
-      updates.condition = { ...step.condition, value: draftFields.conditionValue };
+    if (df.prompt !== undefined && df.prompt !== (step.prompt || '')) updates.prompt = df.prompt;
+    if (df.formula !== undefined && df.formula !== (step.formula || '')) updates.formula = df.formula;
+    if (df.outputColumn !== undefined && df.outputColumn !== (step.outputColumn || '')) updates.outputColumn = df.outputColumn;
+    if (df.campaignId !== undefined && df.campaignId !== (step.campaignId || '')) updates.campaignId = df.campaignId;
+    if (df.query !== undefined && df.query !== (step.query || '')) updates.query = df.query;
+    if (df.rowRange !== undefined && df.rowRange !== (step.rowRange || '')) updates.rowRange = df.rowRange;
+    if (df.conditionValue !== undefined && df.conditionValue !== (step.condition?.value || '')) {
+      updates.condition = { ...step.condition, value: df.conditionValue };
     }
     if (Object.keys(updates).length > 0) {
       updateStep(stepId, updates);
       setConfigSaved(true);
       setTimeout(() => setConfigSaved(false), 2000);
     }
-  }, [draftFields, updateStep]);
-
-  const isDraftDirty = useCallback((step) => {
-    return draftFields.prompt !== (step.prompt || '') ||
-      draftFields.formula !== (step.formula || '') ||
-      draftFields.outputColumn !== (step.outputColumn || '') ||
-      draftFields.campaignId !== (step.campaignId || '') ||
-      draftFields.query !== (step.query || '') ||
-      draftFields.rowRange !== (step.rowRange || '') ||
-      draftFields.conditionValue !== (step.condition?.value || '');
-  }, [draftFields]);
+  }, [updateStep]);
 
   const deleteStep = useCallback((stepId) => {
     setSteps(prev => prev.filter(s => s.id !== stepId));
@@ -1851,6 +1849,13 @@ export default function Dashboard() {
             {/* ─ Step Config panel ─ */}
             {rightPanel === 'step' && rightPanelData && (() => {
               const step = steps.find(s => s.id === rightPanelData.id) || rightPanelData;
+              const dirty = draftFields.prompt !== (step.prompt || '') ||
+                draftFields.formula !== (step.formula || '') ||
+                draftFields.outputColumn !== (step.outputColumn || '') ||
+                draftFields.campaignId !== (step.campaignId || '') ||
+                draftFields.query !== (step.query || '') ||
+                draftFields.rowRange !== (step.rowRange || '') ||
+                draftFields.conditionValue !== (step.condition?.value || '');
               return (
                 <div className="p-3 space-y-3">
                   {/* Column name */}
@@ -2278,15 +2283,15 @@ export default function Dashboard() {
                   <div className="space-y-2 pt-2 border-t border-zinc-800">
                     <button
                       onClick={() => saveStepConfig(step.id, step)}
-                      disabled={!isDraftDirty(step)}
+                      disabled={!dirty}
                       className="w-full text-xs py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded transition font-medium"
                     >
-                      {configSaved ? '✓ Saved' : isDraftDirty(step) ? 'Save Changes' : 'No Changes'}
+                      {configSaved ? '✓ Saved' : dirty ? 'Save Changes' : 'No Changes'}
                     </button>
                   </div>
                   <div className="flex gap-2 pt-2">
                     <button
-                      onClick={() => { if (isDraftDirty(step)) saveStepConfig(step.id, step); runSingleStep(step); }}
+                      onClick={() => { if (dirty) saveStepConfig(step.id, step); runSingleStep(step); }}
                       disabled={!!runningStep}
                       className="flex-1 text-xs py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded transition font-medium"
                     >
